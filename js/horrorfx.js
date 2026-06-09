@@ -259,7 +259,7 @@
       function done() { if (fired) return; fired = true; if (onDone) onDone(); }
       const f = fileFor("zombieWin");
       if (f) {
-        const a = playFile(f, false, 0.6);   // lowered so narration is clear after
+        const a = playFile(f, false, 0.4);   // kept low so the narration after it is clear
         if (a) { a.onended = done; setTimeout(done, 7000); } else done();
         return;
       }
@@ -267,7 +267,7 @@
       if (!c) { done(); return; }
       setTimeout(done, 2200);   // procedural fallback length
       const t = c.currentTime;
-      const out = c.createGain(); out.gain.value = 0.95; out.connect(c.destination);
+      const out = c.createGain(); out.gain.value = 0.45; out.connect(c.destination);
       const dist = distortion(c, 60); dist.connect(out);
       // long, loud, distorted snarl/groan
       const o = c.createOscillator(); o.type = "sawtooth";

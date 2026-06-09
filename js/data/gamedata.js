@@ -101,8 +101,8 @@
   // Buildings / locations per set, used for the building tags in Setup.
   LNOE.buildings = {
     base: ["High School", "Gym", "Book Store", "Church", "Hospital", "Police Station",
-      "Hardware Store", "Gas Station", "Farmhouse", "Cemetery", "Junkyard", "Corner Store",
-      "Manor House", "Town Center", "Main Street"],
+      "Hardware Store", "Gas Station", "Farmhouse", "Graveyard", "Junkyard", "Corner Store",
+      "Manor House", "Town Center", "Main Street", "The Barn", "The Bank", "Morgue"],
     timber_peak: ["Gun Shop", "General Store", "The Plant", "Office Trailer", "Lumber Yard",
       "Sawmill", "Power Relay Station", "Diner", "Tavern", "Bowling Alley", "Sheriff's Office", "Mine"],
     blood_forest: ["Airfield Office", "Airfield Runway", "Ranger Station", "Forest Trail", "Cabins", "Campground"],

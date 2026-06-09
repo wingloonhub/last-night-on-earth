@@ -13,6 +13,7 @@
     scenarioIndex: 0,
     advanced: false,  // base-game Advanced add-on deck
     buildings: [],   // selected building names (tags)
+    spawnAreas: [],  // labelled Zombie Spawning Pits (one die rolled per pit on the Zombie turn)
     players: [{ name: "", hero: "" }, { name: "", hero: "" }]
   };
 
@@ -86,6 +87,11 @@
     html += '<div id="su-buildings" class="checks mt"></div>';
     html += '<div class="row mt" style="align-items:center"><input type="text" id="su-bld-custom" placeholder="Add another building…" style="flex:2"><button class="btn" id="su-bld-add" style="flex:0 0 auto">+ Add</button></div></div>';
     html += '<p class="hint">When a Zombie card says “Roll a Random Building”, the Bot picks one of your selected buildings automatically.</p>';
+    // Spawning pits — chosen ONLY from the buildings ticked above. One die is
+    // rolled per pit each Zombie turn to spawn Zombies.
+    html += '<div class="field mt"><span>Zombie Spawning Pits — tap the buildings that have a pit</span>';
+    html += '<div id="su-spawns" class="checks mt"></div></div>';
+    html += '<p class="hint">Only the buildings you selected above can be tagged as pits. On the Zombie turn (after the fights), the Bot rolls one die per pit to spawn new Zombies.</p>';
     html += "</div>";
 
     // ---- Step C: players ----
@@ -164,6 +170,31 @@
         if (c.checked) { if (state.buildings.indexOf(v) === -1) state.buildings.push(v); }
         else { state.buildings = state.buildings.filter(function (x) { return x !== v; }); }
         renderBuildings();
+        renderSpawns();   // spawning-pit options come ONLY from the selected buildings
+      };
+    });
+  }
+
+  function renderSpawns() {
+    const el = document.getElementById("su-spawns");
+    if (!el) return;
+    if (!state.buildings.length) {
+      el.innerHTML = '<span class="hint">Select buildings on your board above first, then tap which ones have a spawning pit.</span>';
+      return;
+    }
+    // A pit can only be a building that is still selected — drop any stragglers.
+    state.spawnAreas = state.spawnAreas.filter(function (a) { return state.buildings.indexOf(a) > -1; });
+    el.innerHTML = state.buildings.map(function (b) {
+      const on = state.spawnAreas.indexOf(b) > -1;
+      return '<label class="chk' + (on ? " chk-on" : "") + '"><input type="checkbox" class="su-spawn" value="' +
+        esc(b) + '"' + (on ? " checked" : "") + "> ☠ " + esc(b) + "</label>";
+    }).join("");
+    el.querySelectorAll(".su-spawn").forEach(function (c) {
+      c.onchange = function () {
+        const v = c.value;
+        if (c.checked) { if (state.spawnAreas.indexOf(v) === -1) state.spawnAreas.push(v); }
+        else { state.spawnAreas = state.spawnAreas.filter(function (x) { return x !== v; }); }
+        renderSpawns();
       };
     });
   }
@@ -173,6 +204,7 @@
       state.baseSet = this.value;
       state.scenarioIndex = 0;
       state.buildings = [];   // different board — clear the building tags
+      state.spawnAreas = [];  // and clear the old board's spawning pits
       if (state.baseSet !== "base") state.advanced = false;  // Advanced is base-only
       // drop heroes no longer in the pool
       const pool = heroPool().map(function (h) { return h.name; });
@@ -201,6 +233,7 @@
       const v = (inp.value || "").trim();
       if (v && state.buildings.indexOf(v) === -1) { state.buildings.push(v); inp.value = ""; renderBuildings(); }
     };
+    renderSpawns();
     document.getElementById("su-add").onclick = function () {
       state.players.push({ name: "", hero: "" }); renderPlayers();
     };
@@ -222,6 +255,7 @@
         return { name: p.name.trim(), hero: p.hero || "(no character)" };
       }),
       buildings: state.buildings.slice(),
+      spawnAreas: state.spawnAreas.slice(),
       advanced: !!(state.advanced && state.baseSet === "base"),
       startedAt: new Date().toISOString()
     };

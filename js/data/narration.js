@@ -102,7 +102,10 @@
     "“I’ve Got to Get to the…”": "A Hero is desperate to reach the {b} — they will not stop to Search until they get there."
   };
   LNOE.cardBuildingNarration = function (cardName, building) {
-    const b = building || "the building";
+    // Templates read "…the {b}…", so {b} is a bare noun (e.g. "High School").
+    // With no specific building chosen yet, fall back to "building" so it reads
+    // "the building" rather than "the the building".
+    const b = building || "building";
     const t = LNOE.cardBuildingNarrations[cardName];
     if (t) return t.replace("{b}", b);
     return LNOE.cardNarration(cardName) + " The " + b + " is the target.";

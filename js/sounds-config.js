@@ -21,9 +21,9 @@
 window.LNOE = window.LNOE || {};
 window.LNOE.soundFiles = {
   music: "",                          // single looping track (leave blank if using levels below)
-  zombieWin: "sounds/zombie-sfx.mp3", // played when a Zombie wins a fight
-  heroHit: "",                        // played when a Hero wins a fight
-  groan: ""                           // generic zombie groan
+  zombieWin: "sounds/Zombie Groan.mp3", // played when a Zombie wins a fight (quieter)
+  heroHit: "",                          // played when a Hero wins a fight
+  groan: "sounds/Zombie Groan.mp3"      // generic zombie groan (card reveals, after spawn, narration)
 };
 
 // Background music that escalates with the Sun Track. The game splits the

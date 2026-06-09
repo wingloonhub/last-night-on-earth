@@ -107,7 +107,8 @@
   function stopIntro() { LNOE.TTS.stop(); }
 
   function newZTurn() {
-    G.zturn = { drawn: [], played: [], dice: [], movement: "", damage: "", narration: "", step: "start" };
+    G.zturn = { drawn: [], played: [], dice: [], movement: "", damage: "", narration: "", step: "start",
+      sunNarr: "", spawnRolls: null, spawnTotal: 0, spawnDone: false };
   }
 
   // Reset the ordered hero-action stepper at the start of a Hero's turn.
@@ -172,11 +173,36 @@
   function cardNeedsRoll(text) { return /\bD6\b/i.test(text) || /\broll\b/i.test(text); }
   // Does a card need a building chosen (e.g. "Random Building", "any building")?
   function cardNeedsBuilding(text) { return /random building/i.test(text) || /any building/i.test(text); }
+  // Does a card explicitly forbid targeting a building (it must hit some other area)?
+  function cardNoBuilding(text) { return /not .{0,14}building|outside (of )?a building|non-?building|may not .{0,20}building/i.test(text); }
+  // Does a card target a board LOCATION at all — a building, space or area?
+  function cardNeedsTarget(text) {
+    return cardNeedsBuilding(text) || cardNoBuilding(text) ||
+      /\b(random|any) (space|area|location)\b/i.test(text);
+  }
   // Does a card let the Heroes lose the game (e.g. A Town Overrun empties the deck)?
   function cardCanLose(text) { return /automatically lose/i.test(text) || /heroes (auto|immediately )?lose/i.test(text); }
-  function pickBuilding() {
-    const b = (G && G.buildings) || [];
-    return b.length ? b[Math.floor(Math.random() * b.length)] : null;
+  function pickFrom(list) { return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null; }
+  function pickBuilding() { return pickFrom((G && G.buildings) || []); }
+  // Every board location the Bot could target: buildings + labelled spawning pits.
+  function allAreas() {
+    const out = [];
+    (((G && G.buildings) || []).concat(((G && G.spawnAreas) || []))).forEach(function (a) {
+      if (a && out.indexOf(a) === -1) out.push(a);
+    });
+    return out;
+  }
+  // The pool of legal targets for a given card.
+  function targetPoolFor(card) {
+    const t = (card && card.text) || "";
+    if (cardNoBuilding(t)) {
+      // Must avoid buildings — use spawning pits / areas that are not buildings.
+      const blds = (G && G.buildings) || [];
+      const areas = ((G && G.spawnAreas) || []).filter(function (a) { return blds.indexOf(a) === -1; });
+      return areas.length ? areas : allAreas();
+    }
+    if (cardNeedsBuilding(t)) return (G && G.buildings) || [];
+    return allAreas();
   }
 
   // The Bot's automatic turn: draw to refill its hidden hand, then play the
@@ -190,12 +216,16 @@
     toPlay.forEach(function (c) {
       G.bot.playFromHand(c.uid);
       G.zturn.played.push(c.name);
-      const building = cardNeedsBuilding(c.text) ? pickBuilding() : null;
-      const narr = building
-        ? (LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(c.name, building))
+      // If the card targets a board location, pick one and always say what
+      // happens to it in the narration — naming the chosen area when one is
+      // configured, or speaking of "the building/area" generically otherwise.
+      const needsTarget = cardNeedsTarget(c.text);
+      const target = needsTarget ? pickFrom(targetPoolFor(c)) : null;
+      const narr = needsTarget
+        ? (LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(c.name, target))
         : cardThematic(c);
       played.push({ name: c.name, simple: c.simple, text: c.text, remains: c.remains, timing: c.timing,
-        narration: narr, building: building });
+        narration: narr, target: target });
     });
     return { played: played };
   }
@@ -221,7 +251,7 @@
     h += suntrack();
     if (G.sun >= G.sunMax) {
       h += '<div class="narration" style="border-left-color:var(--blood-bright);color:#ffb3b3;margin-bottom:0">' +
-        "⚠ DAWN IS BREAKING — this is the FINAL turn of the night. When the Zombie turn ends, the game is over.</div>";
+        "⚠ DAWN IS BREAKING — the sun has reached the final hour. The night ends the moment the next Zombie turn begins.</div>";
     }
     h += "</div>";
     return h;
@@ -419,6 +449,12 @@
       G.phase = "zombie";
       G.turnNumber++;
       newZTurn();
+      // Step 1 of the Zombie turn: the sun marker creeps toward dawn (moved to
+      // the START of the turn). If it has already reached dawn, the night is over.
+      if (G.sun >= G.sunMax) { showEnding(); return; }
+      G.sun++;
+      G.zturn.sunNarr = narrate("sunMove");
+      if (musicOn && LNOE.FX) LNOE.FX.setStage(musicStage()); // music escalates as dawn nears
       G.zturn.narration = narrate("zombieTurn");
       renderZombie();
     }
@@ -434,8 +470,15 @@
 
     h += '<div class="narration voice-on">' + esc(G.zturn.narration) + ' <button class="btn btn-ghost" id="z-speak" style="float:right">🔊 Read aloud</button></div>';
 
-    // 1. The Bot plays its own cards — automatically and in secret.
-    h += '<div class="card"><h3>1 · The Bot’s cards</h3>';
+    // 1 · The sun marker — it advances at the START of the Zombie turn.
+    h += '<div class="card"><h3>1 · Move the sun marker</h3>';
+    h += '<p class="section-help">The night creeps toward dawn. The sun marker has moved forward one space — it is now hour ' + G.sun + ' of ' + G.sunMax + '.</p>';
+    if (G.zturn.sunNarr) h += '<div class="narration voice-on">' + esc(G.zturn.sunNarr) + "</div>";
+    if (G.sun >= G.sunMax) h += '<p class="hint" style="color:#ffb3b3">⚠ The sun has reached the final hour — the night ends as soon as the next Zombie turn begins.</p>';
+    h += "</div>";
+
+    // 2 · The Bot plays its own cards — automatically and in secret.
+    h += '<div class="card"><h3>2 · Draw Zombie cards</h3>';
     h += '<p class="section-help">The Bot draws and chooses its own cards in secret — you don’t control it. Reveal only what it decides to play this turn, then apply each effect to the board.</p>';
     h += '<button class="btn btn-rust btn-lg" id="z-run">☠ Reveal the Bot’s play</button>';
     h += '<div id="z-run-out" class="mt"></div>';
@@ -443,14 +486,14 @@
     h += '<div id="z-played" class="mt"></div>';
     h += "</div>";
 
-    // 2. Movement
-    h += '<div class="card"><h3>2 · Move the Zombies</h3>';
+    // 3 · Movement
+    h += '<div class="card"><h3>3 · Move the Zombies</h3>';
     h += '<p class="section-help">Move every Zombie 1 space toward the nearest Hero (or as a card says). Note anything important below — it’s saved to the turn log.</p>';
     h += '<label class="field">Movement notes (optional)<input type="text" id="z-move" placeholder="e.g. moved 3 zombies toward the barn; Shamble rushed one into the house"></label>';
     h += "</div>";
 
-    // 3. Fight + dice
-    h += '<div class="card"><h3>3 · Fights &amp; dice</h3>';
+    // 4 · Fight + dice
+    h += '<div class="card"><h3>4 · Fight the Heroes</h3>';
     h += '<p class="section-help">When a Zombie fights a Hero, roll here. Add extra dice for cards like Uuuurrrggghh! or Cornered. Compare the highest die to the Hero’s roll.</p>';
     h += '<div class="toolbar">';
     h += '<label class="hint">Dice to roll: <select id="z-ndice">';
@@ -464,8 +507,17 @@
     h += '<button class="btn btn-primary" id="zf-lost">☠ Hero lost this fight</button></div>';
     h += "</div>";
 
-    // 4. Hero reactions during zombie turn
-    h += '<div class="card"><h3>4 · Did a Hero play a card?</h3>';
+    // 5 · Spawn — AFTER the fights. Auto-roll one die per spawning pit, then place them.
+    h += '<div class="card"><h3>5 · Spawn new Zombies</h3>';
+    h += '<p class="section-help">Now spawn the Zombies. One die sets how many rise, and the game tells you exactly which pit to add each one to.</p>';
+    h += '<div id="z-spawn-pits">' + spawnPitsList() + "</div>";
+    h += '<div id="z-addpit-wrap" class="mt">' + spawnAddControl() + "</div>";
+    h += '<button class="btn btn-rust btn-lg mt" id="z-spawn">☠ Spawn Zombies</button>';
+    h += '<div id="z-spawn-out" class="mt">' + spawnResultText() + "</div>";
+    h += "</div>";
+
+    // Aux · Hero reactions during the Zombie turn (a helper, not part of the order).
+    h += '<div class="card"><h3>☠ Did a Hero play a card?</h3>';
     h += '<p class="section-help">If a Hero plays a card during your turn, type it here. The Bot decides whether to intervene, and you can counter back and forth until it’s settled.</p>';
     h += '<label class="field">Hero card played<input type="text" id="z-herocard" placeholder="e.g. Faith / Shotgun / Adrenaline"></label>';
     h += '<button class="btn btn-rust" id="z-react">🧍 Hero plays this →</button>';
@@ -505,15 +557,15 @@
           html += '<div class="ctype">' + (p.remains ? "Zombie Event · Stays in play" : "Zombie Event") + "</div>";
           html += '<div class="ctitle">' + esc(p.name) + "</div>";
           if (p.remains) html += '<span class="pill tag-remains">Stays in play</span>';
-          html += '<div class="rnarr">“' + esc(p.narration) + '”</div>';
+          html += '<div class="rnarr" id="zc-narr-' + idx + '">“' + esc(p.narration) + '”</div>';
           html += '<div class="csimple"><strong>Do this:</strong> ' + esc(p.simple) + "</div>";
-          if (cardNeedsBuilding(p.text)) {
-            if (p.building) {
-              html += '<div class="csimple mt">🏚 The Bot targets: <strong>' + esc(p.building) + "</strong></div>";
-            } else {
-              html += '<div class="mt"><button class="btn btn-rust zc-roll" data-i="' + idx + '">🎲 Roll for which building</button> ' +
-                '<span class="zc-roll-out hint">(add your buildings in Setup to have the Bot pick automatically)</span></div>';
-            }
+          if (cardNeedsTarget(p.text)) {
+            html += '<div class="csimple mt" id="zc-target-' + idx + '">🏚 The Bot targets: <strong>' +
+              esc(p.target || "— none set —") + "</strong></div>";
+            html += '<div class="mt"><button class="btn btn-rust zc-reroll" data-i="' + idx + '">🎲 Re-randomise the area</button> ' +
+              '<span class="hint">' + (cardNoBuilding(p.text)
+                ? "This card can’t target a building — it picks another area on your board."
+                : "Roll a different building/area for this card.") + "</span></div>";
           } else if (cardNeedsRoll(p.text)) {
             html += '<div class="mt"><button class="btn btn-rust zc-roll" data-i="' + idx + '">🎲 Roll the dice for the Bot</button> ' +
               '<span class="zc-roll-out hint"></span></div>';
@@ -542,6 +594,22 @@
           b.nextElementSibling.innerHTML = '🎲 The Bot rolled a <strong>' + d +
             "</strong> — apply that many (spaces moved / Zombies spawned / building number).";
           LNOE.FX.groan();
+        };
+      });
+      // Re-randomise which building/area a card targets, and re-tell its narration.
+      out.querySelectorAll(".zc-reroll").forEach(function (b) {
+        b.onclick = function () {
+          const i = +b.dataset.i;
+          const p = result.played[i];
+          const newT = pickFrom(targetPoolFor({ text: p.text }));
+          p.target = newT;
+          p.narration = LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(p.name, newT);
+          const tEl = document.getElementById("zc-target-" + i);
+          if (tEl) tEl.innerHTML = "🏚 The Bot targets: <strong>" + esc(newT || "(add a building/area in Setup)") + "</strong>";
+          const nEl = document.getElementById("zc-narr-" + i);
+          if (nEl) nEl.innerHTML = "“" + esc(p.narration) + "”";
+          LNOE.FX.groan();
+          if (voiceOn && newT) LNOE.TTS.speak(stripQuotes(p.narration));
         };
       });
       out.querySelectorAll(".zc-lose").forEach(function (b) {
@@ -575,6 +643,123 @@
       startResolution({ type: "card", heroCardText: name, title: "Hero plays: " + name });
     };
     document.getElementById("z-end").onclick = endZombieTurn;
+    wireSpawn();
+  }
+
+  /* ------------------------- SPAWN (step 5) ------------------------- */
+  function joinParts(arr) {
+    if (arr.length <= 1) return arr[0] || "";
+    if (arr.length === 2) return arr[0] + " and " + arr[1];
+    return arr.slice(0, -1).join(", ") + ", and " + arr[arr.length - 1];
+  }
+  // "the High School" / "the Barn" (don't double the article on names like "The Barn").
+  function withThe(area) {
+    const m = /^the\s+/i.exec(area || "");
+    return "the " + (m ? area.slice(m[0].length) : area);
+  }
+  // A spoken line naming HOW MANY Zombies rise and at WHICH building each goes.
+  function spawnNarration() {
+    const total = G.zturn.spawnTotal || 0;
+    const place = (G.zturn.spawnPlacement || []).filter(function (p) { return p.count > 0; });
+    const rise = total === 1 ? "one fresh corpse claws its way" : total + " fresh dead claw their way";
+    if (!place.length) {
+      return "The earth splits open and " + rise + " up into the night.";
+    }
+    const parts = place.map(function (p) { return p.count + " at " + withThe(p.area); });
+    return "The earth splits open — " + rise + " up into the night: " + joinParts(parts) + ".";
+  }
+  // The labelled Spawning Pits and how many Zombies each rolled this turn.
+  function spawnPitsList() {
+    const pits = (G.spawnAreas && G.spawnAreas.length) ? G.spawnAreas : [];
+    if (!pits.length) {
+      return '<p class="hint">No spawning pits labelled yet. Add one below (or in Setup) so the Bot knows where the dead rise.</p>';
+    }
+    return '<span class="hint">Spawning pits on the board:</span> ' + pits.map(function (a, i) {
+      return '<span class="pill tag-immediate">☠ ' + esc(a) +
+        ' <a href="#" class="pit-del" data-i="' + i + '" style="color:inherit;text-decoration:none" title="Remove">✕</a></span>';
+    }).join(" ");
+  }
+  function spawnResultText() {
+    if (!G.zturn.spawnDone) return "";
+    let h = "";
+    if (G.zturn.spawnNarr) h += '<div class="narration voice-on">' + esc(G.zturn.spawnNarr) + "</div>";
+    h += '<div class="dice-area"><div class="die skull">' + G.zturn.spawnTotal + "</div>";
+    h += '<span class="hint" style="margin-left:6px">Spawn <strong>' + G.zturn.spawnTotal + "</strong> new Zombie(s).</span></div>";
+    const place = (G.zturn.spawnPlacement || []).filter(function (p) { return p.count > 0; });
+    if (place.length) {
+      h += '<div class="csimple mt"><strong>Add them here:</strong><ul style="margin:6px 0 0 18px">';
+      place.forEach(function (p) {
+        h += "<li><strong>+" + p.count + "</strong> Zombie" + (p.count === 1 ? "" : "s") + " at " + esc(p.area) + "</li>";
+      });
+      h += "</ul></div>";
+    } else {
+      h += '<div class="csimple mt">No spawning pits tagged — place the ' + G.zturn.spawnTotal +
+        " Zombie(s) as the scenario directs.</div>";
+    }
+    return h;
+  }
+  // Mid-game, a new pit can only be tagged on a building that is on the board
+  // and not already a pit — same rule as Setup.
+  function spawnAddControl() {
+    const avail = ((G.buildings) || []).filter(function (b) { return (G.spawnAreas || []).indexOf(b) === -1; });
+    if (!avail.length) {
+      return '<p class="hint">Every building on your board is already a pit (or none were selected — add buildings in Setup).</p>';
+    }
+    let s = '<div class="row" style="align-items:center"><select id="z-newpit" style="flex:2"><option value="">— tag a building as a new pit —</option>';
+    avail.forEach(function (b) { s += '<option value="' + esc(b) + '">' + esc(b) + "</option>"; });
+    s += '</select><button class="btn" id="z-addpit" style="flex:0 0 auto">+ Add pit</button></div>';
+    return s;
+  }
+  function refreshSpawnUI() {
+    const a = document.getElementById("z-spawn-pits"); if (a) a.innerHTML = spawnPitsList();
+    const b = document.getElementById("z-addpit-wrap"); if (b) b.innerHTML = spawnAddControl();
+    wireSpawnControls();
+  }
+  function wirePitDeletes() {
+    panel().querySelectorAll(".pit-del").forEach(function (a) {
+      a.onclick = function (e) {
+        e.preventDefault();
+        G.spawnAreas.splice(+a.dataset.i, 1);
+        refreshSpawnUI();
+      };
+    });
+  }
+  function wireSpawnControls() {
+    wirePitDeletes();
+    const addPit = document.getElementById("z-addpit");
+    if (addPit) addPit.onclick = function () {
+      const sel = document.getElementById("z-newpit");
+      const v = (sel && sel.value) || "";
+      if (!v) return;
+      G.spawnAreas = G.spawnAreas || [];
+      if (G.spawnAreas.indexOf(v) === -1) G.spawnAreas.push(v);
+      refreshSpawnUI();
+    };
+  }
+  function wireSpawn() {
+    wireSpawnControls();
+    const spawnBtn = document.getElementById("z-spawn");
+    if (spawnBtn) spawnBtn.onclick = function () {
+      // A single D6 sets how many Zombies spawn this turn (regardless of pit count).
+      const roll = 1 + Math.floor(Math.random() * 6);
+      const pits = (G.spawnAreas && G.spawnAreas.length) ? G.spawnAreas.slice() : [];
+      // Assign each spawned Zombie to a pit so the player knows exactly where to add them.
+      const tally = {};
+      pits.forEach(function (p) { tally[p] = 0; });
+      for (let i = 0; i < roll && pits.length; i++) {
+        tally[pits[Math.floor(Math.random() * pits.length)]]++;
+      }
+      G.zturn.spawnTotal = roll;
+      G.zturn.spawnPlacement = pits.map(function (p) { return { area: p, count: tally[p] }; });
+      G.zturn.spawnRolls = [{ area: "spawn", roll: roll }]; // keep a shape for the turn log
+      G.zturn.spawnDone = true;
+      G.zturn.spawnNarr = spawnNarration();   // names how many rise and at which building
+      G.zturn.dice.push({ n: 1, rolls: [roll], highest: roll, kind: "spawn" });
+      document.getElementById("z-spawn-out").innerHTML = spawnResultText();
+      // Zombie groan AFTER the spawn step, as requested.
+      if (LNOE.FX) LNOE.FX.groan();
+      if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(G.zturn.spawnNarr)); }, 250);
+    };
   }
 
   function renderPlayed() {
@@ -821,15 +1006,7 @@
 
   function endZombieTurn() {
     saveTurn(); // auto-save the turn summary to the log
-    // Advance the sun, narrate the night creeping on.
-    if (G.sun < G.sunMax) {
-      G.sun++;
-      G.zturn.sunNarr = narrate("sunMove");
-      if (musicOn && LNOE.FX) LNOE.FX.setStage(musicStage()); // music escalates as dawn nears
-    } else {
-      // Dawn — the night is over. Go straight to the ending.
-      showEnding(); return;
-    }
+    // (The sun now advances at the START of the next Zombie turn — see endHeroTurn.)
     G.round++;
     G.phase = "hero";
     const alive = aliveIndices();
