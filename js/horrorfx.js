@@ -57,6 +57,22 @@
       return a;
     } catch (e) { return null; }
   }
+  // Smoothly fade an <audio> element's volume; pause it if fading to 0.
+  function fadeAudio(el, target, ms) {
+    if (!el) return;
+    if (el._fade) clearInterval(el._fade);
+    const steps = 20, start = el.volume;
+    let i = 0;
+    el._fade = setInterval(function () {
+      i++;
+      el.volume = Math.max(0, Math.min(1, start + (target - start) * (i / steps)));
+      if (i >= steps) { clearInterval(el._fade); el._fade = null; if (target === 0) { try { el.pause(); } catch (e) {} } }
+    }, Math.max(20, ms / steps));
+  }
+  function musicLevels() {
+    const m = LNOE.musicLevels;
+    return (m && m.length) ? m : null;
+  }
 
   // Four music stages that escalate as the night wears on (Sun Track progress).
   // Each gets faster, lower, more dissonant and louder toward dawn.
@@ -86,6 +102,8 @@
   const FX = {
     available: !!(window.AudioContext || window.webkitAudioContext),
     _stage: 0,
+    _musicBaseVol: 0.3,   // normal background level (kept low so narration is clear)
+    _ducked: false,
 
     // Start the looping ambience bed. Safe to call repeatedly.
     startAmbience: function () {
@@ -235,11 +253,19 @@
       n.start(t); n.stop(t + 0.2);
     },
 
-    // ZOMBIE WINS a fight: a loud distorted snarl, then wet tearing / feeding.
-    feed: function () {
-      const f = fileFor("zombieWin"); if (f) { playFile(f, false, 1); return; }
+    // ZOMBIE WINS a fight: the zombie clip (quieter), then onDone() once it ends.
+    feed: function (onDone) {
+      let fired = false;
+      function done() { if (fired) return; fired = true; if (onDone) onDone(); }
+      const f = fileFor("zombieWin");
+      if (f) {
+        const a = playFile(f, false, 0.6);   // lowered so narration is clear after
+        if (a) { a.onended = done; setTimeout(done, 7000); } else done();
+        return;
+      }
       const c = getCtx();
-      if (!c) return;
+      if (!c) { done(); return; }
+      setTimeout(done, 2200);   // procedural fallback length
       const t = c.currentTime;
       const out = c.createGain(); out.gain.value = 0.95; out.connect(c.destination);
       const dist = distortion(c, 60); dist.connect(out);
@@ -274,6 +300,19 @@
     // Uses a custom file if one is set; otherwise a generated ominous bed.
     startMusic: function (stage) {
       if (typeof stage === "number") FX._stage = stage;
+      // Sun-Track music levels: crossfade to the file for the current stage.
+      const levels = musicLevels();
+      if (levels) {
+        const url = levels[Math.min(FX._stage || 0, levels.length - 1)] || levels[0];
+        if (FX._musicEl && FX._musicUrl === url) { FX._musicEl.play().catch(function () {}); return; }
+        const old = FX._musicEl;
+        const el = new Audio(url); el.loop = true; el.volume = 0;
+        FX._musicEl = el; FX._musicUrl = url;
+        const target = FX._ducked ? 0.1 : FX._musicBaseVol;
+        el.play().then(function () { fadeAudio(el, target, 1800); }).catch(function () { /* needs a click first */ });
+        if (old && old !== el) fadeAudio(old, 0, 1400);
+        return;
+      }
       const f = fileFor("music");
       if (f) {
         if (!FX._musicEl) { FX._musicEl = playFile(f, true, 0.45); }
@@ -285,6 +324,7 @@
       const T = MUSIC_THEMES[FX._stage] || MUSIC_THEMES[0];
       const out = c.createGain(); out.gain.value = 0.0001; out.connect(c.destination);
       out.gain.linearRampToValueAtTime(T.master, c.currentTime + 2.5);
+      FX._musicGain = out; FX._musicGainBase = T.master;
       const nodes = [out];
       const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = T.lp; lp.connect(out);
       nodes.push(lp);
@@ -332,18 +372,42 @@
       };
     },
     stopMusic: function () {
-      if (FX._musicEl) { try { FX._musicEl.pause(); } catch (e) {} }
+      if (FX._musicEl) { try { FX._musicEl.pause(); } catch (e) {} FX._musicEl = null; FX._musicUrl = null; }
       if (FX._music) { FX._music.stop(); FX._music = null; }
+      FX._musicGain = null;
     },
-    musicStageCount: MUSIC_THEMES.length,
-    // Switch to a music stage (0..3). Crossfades the old bed into the new one.
+    // How many music stages exist (level files if provided, else the 4 generated themes).
+    stageCount: function () { return musicLevels() ? musicLevels().length : MUSIC_THEMES.length; },
+    // Switch to a music stage. Crossfades level files; restarts the generated bed.
     setStage: function (n) {
-      n = Math.max(0, Math.min(MUSIC_THEMES.length - 1, n | 0));
+      const max = (musicLevels() ? musicLevels().length : MUSIC_THEMES.length) - 1;
+      n = Math.max(0, Math.min(max, n | 0));
       if (n === FX._stage && (FX._music || FX._musicEl)) return;
       const wasPlaying = !!(FX._music || FX._musicEl);
       FX._stage = n;
-      if (fileFor("music")) return;   // a custom track doesn't change by stage
+      if (musicLevels()) { if (wasPlaying) FX.startMusic(n); return; }  // crossfades to the new level
+      if (fileFor("music")) return;   // single custom track doesn't change by stage
       if (wasPlaying) { FX.stopMusic(); FX.startMusic(n); }
+    },
+
+    // Duck the background music down while the narrator speaks, then restore.
+    duck: function (on) {
+      FX._ducked = !!on;
+      if (FX._musicEl) fadeAudio(FX._musicEl, on ? 0.1 : FX._musicBaseVol, on ? 350 : 1100);
+      if (FX._musicGain) {
+        try {
+          const c = getCtx();
+          FX._musicGain.gain.cancelScheduledValues(c.currentTime);
+          FX._musicGain.gain.linearRampToValueAtTime(on ? 0.05 : FX._musicGainBase, c.currentTime + (on ? 0.35 : 1.1));
+        } catch (e) {}
+      }
+    },
+
+    // The zombie sound-effect clip (used on a Zombie win and on "horde").
+    zombieSfx: function () {
+      const f = fileFor("zombieWin");
+      if (f) { playFile(f, false, 0.95); return; }
+      FX.groan();
     },
 
     stopAll: function () { FX.stopAmbience(); FX.stopMusic(); }

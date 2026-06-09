@@ -94,6 +94,20 @@
     return LNOE.cardNarrations[cardName] || LNOE.narrate("bigCard");
   };
 
+  // When a played card targets a building, say what happens to that building.
+  LNOE.cardBuildingNarrations = {
+    "Lights Out": "Every light in the {b} dies at once. Whoever steps inside now is blind in the dark.",
+    "“My God, They’ve Taken the…”": "The dead have taken the {b}. It is full of them now — and no one living is getting inside.",
+    "New Spawning Pit": "The ground tears open inside the {b}. A fresh pit, and the dead keep clawing up out of it.",
+    "“I’ve Got to Get to the…”": "A Hero is desperate to reach the {b} — they will not stop to Search until they get there."
+  };
+  LNOE.cardBuildingNarration = function (cardName, building) {
+    const b = building || "the building";
+    const t = LNOE.cardBuildingNarrations[cardName];
+    if (t) return t.replace("{b}", b);
+    return LNOE.cardNarration(cardName) + " The " + b + " is the target.";
+  };
+
   // Suspense lead-ins, spoken just before a Zombie card's line to build dread.
   LNOE.suspenseOpeners = [
     "Wait… do you hear that?",

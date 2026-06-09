@@ -53,6 +53,20 @@
     else renderResults();
   }
 
+  function zombieCardHtml(c) {
+    let h = '<div class="deck-card"><div class="dc-top"><span class="dc-name">' + esc(c.name) + "</span>" +
+      '<span class="dc-copies">×' + (c.copies || 1) + "</span></div>";
+    h += '<div>';
+    if (c.timing === "immediate") h += '<span class="pill tag-immediate">Play Immediately</span>';
+    if (c.remains) h += '<span class="pill tag-remains">Remains in Play</span>';
+    h += '<span class="pill">' + timingLabel(c.timing) + "</span></div>";
+    h += '<div class="dc-text">' + esc(c.text) + "</div>";
+    h += '<div class="dc-simple">▶ ' + esc(c.simple) + "</div>";
+    if (c.quote) h += '<div class="dc-text" style="font-style:italic">' + esc(c.quote) + "</div>";
+    h += "</div>";
+    return h;
+  }
+
   function renderZombieDeck() {
     const def = LNOE.zombieDecks[setKey] || [];
     const total = def.reduce(function (s, c) { return s + (c.copies || 1); }, 0);
@@ -61,20 +75,20 @@
       h += emptyNote(setKey, "Zombie");
     } else {
       h += '<p class="section-help">' + def.length + " unique card(s) · " + total + " cards total in the deck.</p>";
-      def.forEach(function (c) {
-        h += '<div class="deck-card"><div class="dc-top"><span class="dc-name">' + esc(c.name) + "</span>" +
-          '<span class="dc-copies">×' + (c.copies || 1) + "</span></div>";
-        h += '<div>';
-        if (c.timing === "immediate") h += '<span class="pill tag-immediate">Play Immediately</span>';
-        if (c.remains) h += '<span class="pill tag-remains">Remains in Play</span>';
-        h += '<span class="pill">' + timingLabel(c.timing) + "</span></div>";
-        h += '<div class="dc-text">' + esc(c.text) + "</div>";
-        h += '<div class="dc-simple">▶ ' + esc(c.simple) + "</div>";
-        if (c.quote) h += '<div class="dc-text" style="font-style:italic">' + esc(c.quote) + "</div>";
-        h += "</div>";
-      });
+      def.forEach(function (c) { h += zombieCardHtml(c); });
     }
     h += "</div>";
+
+    // Advanced add-on deck (base game only).
+    const adv = (LNOE.zombieDecksAdvanced && LNOE.zombieDecksAdvanced[setKey]) || null;
+    if (adv && adv.length) {
+      const advTotal = adv.reduce(function (s, c) { return s + (c.copies || 1); }, 0);
+      h += '<div class="card"><h2>Advanced Deck <span class="pill">optional add-on</span></h2>';
+      h += '<p class="section-help">Turn this on in Setup to mix these into the base game. ' +
+        adv.length + " unique card(s) · " + advTotal + " cards total.</p>";
+      adv.forEach(function (c) { h += zombieCardHtml(c); });
+      h += "</div>";
+    }
     document.getElementById("ad-body").innerHTML = h;
   }
 

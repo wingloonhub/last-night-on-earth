@@ -11,6 +11,7 @@
     baseSet: "base",
     expansions: [],
     scenarioIndex: 0,
+    advanced: false,  // base-game Advanced add-on deck
     buildings: [],   // selected building names (tags)
     players: [{ name: "", hero: "" }, { name: "", hero: "" }]
   };
@@ -37,9 +38,12 @@
     html += '<span class="step-badge">Setup · Step 1</span>';
     html += "<h2>Choose your game</h2>";
     html += '<p class="section-help">Pick the main game box. The Bot will use that box’s Zombie deck.</p>';
+    const COMING_SOON = { timber_peak: true, blood_forest: true };
     html += '<label class="field">Base game set<select id="su-set">';
     sets.forEach(function (s) {
-      html += '<option value="' + s.key + '"' + (s.key === state.baseSet ? " selected" : "") + ">" + esc(s.name) + "</option>";
+      const soon = COMING_SOON[s.key];
+      html += '<option value="' + s.key + '"' + (s.key === state.baseSet ? " selected" : "") +
+        (soon ? " disabled" : "") + ">" + esc(s.name) + (soon ? " (coming soon)" : "") + "</option>";
     });
     html += "</select></label>";
     html += '<div class="field"><span>Extra expansions (optional — mix into the base box)</span><div class="checks mt">';
@@ -48,6 +52,13 @@
       html += '<label class="chk"><input type="checkbox" class="su-exp" value="' + e.key + '"' + (on ? " checked" : "") + ">" + esc(e.name) + "</label>";
     });
     html += "</div></div>";
+    // Advanced add-on — base game only.
+    if (state.baseSet === "base") {
+      html += '<div class="field"><span>Advanced Zombie deck (base game only)</span><div class="checks mt">';
+      html += '<label class="chk' + (state.advanced ? " chk-on" : "") + '"><input type="checkbox" id="su-advanced"' +
+        (state.advanced ? " checked" : "") + "> Add the Advanced deck (20 extra cards)</label>";
+      html += "</div></div>";
+    }
     html += "</div>";
 
     // ---- Step B: scenario ----
@@ -162,6 +173,7 @@
       state.baseSet = this.value;
       state.scenarioIndex = 0;
       state.buildings = [];   // different board — clear the building tags
+      if (state.baseSet !== "base") state.advanced = false;  // Advanced is base-only
       // drop heroes no longer in the pool
       const pool = heroPool().map(function (h) { return h.name; });
       state.players.forEach(function (p) { if (pool.indexOf(p.hero) === -1) p.hero = ""; });
@@ -180,6 +192,8 @@
       const obj = LNOE.scenariosFor(state.baseSet, state.expansions)[state.scenarioIndex];
       document.getElementById("su-objective").textContent = obj ? obj.objective : "";
     };
+    const adv = document.getElementById("su-advanced");
+    if (adv) adv.onchange = function () { state.advanced = this.checked; render(); };
     renderBuildings();
     const addBld = document.getElementById("su-bld-add");
     if (addBld) addBld.onclick = function () {
@@ -208,6 +222,7 @@
         return { name: p.name.trim(), hero: p.hero || "(no character)" };
       }),
       buildings: state.buildings.slice(),
+      advanced: !!(state.advanced && state.baseSet === "base"),
       startedAt: new Date().toISOString()
     };
     rendered = false; // so returning to setup re-renders fresh

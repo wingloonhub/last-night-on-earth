@@ -12,16 +12,20 @@
   let voiceOn = true;    // Scary Voice on by default so cards are narrated aloud
   let musicOn = true;    // continuous horror background music
 
-  // Which of the 4 music stages fits the current Sun Track progress (0..3).
+  // Which music stage fits the current Sun Track progress (escalates toward dawn).
   function musicStage() {
     if (!G) return 0;
-    return Math.min(3, Math.floor((G.sun - 1) / G.sunMax * 4));
+    const count = (LNOE.FX && LNOE.FX.stageCount) ? LNOE.FX.stageCount() : 4;
+    return Math.min(count - 1, Math.floor((G.sun - 1) / G.sunMax * count));
   }
 
   // Ensure the background music is playing (it runs continuously during a game).
   function narrationMusic() {
     if (musicOn && LNOE.FX) LNOE.FX.startMusic(musicStage());
   }
+
+  // (Zombie sound effect now plays ONLY when the Zombie wins a fight.)
+  function hordeSfx() { /* disabled */ }
 
   const HERO_ACTIONS = [
     { title: "Move or Search", help: "Roll one die and move that many spaces. If you are INSIDE a building, you may Search instead of moving — draw a Hero card to find weapons or items." },
@@ -35,6 +39,7 @@
     if (line) {
       narrationMusic(Math.max(7000, line.length * 70)); // background music under it
       if (LNOE.FX) LNOE.FX.groan();                      // and a zombie groan
+      hordeSfx(line);                                    // extra SFX if it mentions a horde
       if (voiceOn) LNOE.TTS.speak(stripQuotes(line));
     }
     return line;
@@ -52,6 +57,7 @@
   function announceBotCard(card) {
     const line = cardThematic(card);
     narrationMusic(Math.max(10000, line.length * 80)); // horror music under the card
+    hordeSfx(line);
     LNOE.FX.stinger();
     setTimeout(function () { LNOE.FX.groan(); }, 300);
     if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(line)); }, 650);
@@ -61,7 +67,7 @@
   /* ----------------------------- START ----------------------------- */
   function start(gameState) {
     G = gameState;
-    G.bot = new LNOE.Bot(G.baseSet);
+    G.bot = new LNOE.Bot(G.baseSet, G.advanced);
     // The Zombie player holds cards from the start, so the Bot can intervene
     // even during the very first Hero turn.
     G.bot.draw(); G.bot.draw();
@@ -89,6 +95,7 @@
     if (musicOn) LNOE.FX.startMusic(musicStage());
     LNOE.FX.stinger();
     const story = stripQuotes(G.introText);
+    hordeSfx(story);
     if (LNOE.TTS.available) {
       setTimeout(function () {
         LNOE.TTS.speak(story, function () { LNOE.FX.groan(); });
@@ -183,9 +190,12 @@
     toPlay.forEach(function (c) {
       G.bot.playFromHand(c.uid);
       G.zturn.played.push(c.name);
+      const building = cardNeedsBuilding(c.text) ? pickBuilding() : null;
+      const narr = building
+        ? (LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(c.name, building))
+        : cardThematic(c);
       played.push({ name: c.name, simple: c.simple, text: c.text, remains: c.remains, timing: c.timing,
-        narration: cardThematic(c),
-        building: cardNeedsBuilding(c.text) ? pickBuilding() : null });
+        narration: narr, building: building });
     });
     return { played: played };
   }
@@ -203,6 +213,7 @@
     h += '<span class="spacer"></span>';
     h += '<button class="btn btn-ghost" id="g-music">' + (musicOn ? "🎵 Music: ON" : "🎵 Music: OFF") + "</button>";
     h += '<button class="btn btn-ghost" id="g-voice">' + (voiceOn ? "🔊 Scary Voice: ON" : "🔇 Scary Voice: OFF") + "</button>";
+    h += '<select id="g-voicepick" class="hdr-select" title="Narrator voice (from your device)"></select>';
     h += '<button class="btn btn-ghost" id="g-end">End Game</button>';
     h += '<button class="btn btn-ghost" id="g-quit">Back to Setup</button>';
     h += "</div>";
@@ -238,6 +249,22 @@
       this.textContent = voiceOn ? "🔊 Scary Voice: ON" : "🔇 Scary Voice: OFF";
       if (voiceOn && !LNOE.TTS.available) alert("Your browser has no speech voices available.");
     };
+    const vp = document.getElementById("g-voicepick");
+    if (vp) {
+      const vs = LNOE.TTS.voices();
+      if (!vs.length) {
+        vp.innerHTML = "<option>Device voice</option>"; vp.disabled = true;
+      } else {
+        const cur = LNOE.TTS.currentName();
+        vp.innerHTML = vs.map(function (v) {
+          return '<option value="' + esc(v.name) + '"' + (v.name === cur ? " selected" : "") + ">🗣 " + esc(v.name) + "</option>";
+        }).join("");
+        vp.onchange = function () {
+          LNOE.TTS.setVoice(this.value);
+          if (voiceOn) LNOE.TTS.speak("This is the narrator's voice."); // quick preview
+        };
+      }
+    }
     document.getElementById("g-quit").onclick = function () {
       if (confirm("Leave this game and go back to Setup? Progress in this game will be lost (saved turn logs are kept).")) {
         G = null; LNOE.TTS.stop(); LNOE.FX.stopAll(); LNOE.Setup.forceSetup();
@@ -504,9 +531,10 @@
       narrationMusic(14000); // horror background music for the reveal
       LNOE.FX.stinger();
       setTimeout(function () { LNOE.FX.groan(); }, 300);
-      if (voiceOn && result.played.length) {
+      if (result.played.length) {
         const speech = result.played.map(function (p) { return stripQuotes(p.narration); }).join("  ");
-        setTimeout(function () { LNOE.TTS.speak(speech); }, 650);
+        hordeSfx(speech);
+        if (voiceOn) setTimeout(function () { LNOE.TTS.speak(speech); }, 650);
       }
       out.querySelectorAll(".zc-roll").forEach(function (b) {
         b.onclick = function () {
@@ -753,10 +781,14 @@
     if (r.context.type === "fight") {
       const heroWon = outcome.indexOf("Heroes") === 0;
       narrationMusic(8000);
-      if (heroWon) LNOE.FX.whack();   // a meaty hit on the zombie
-      else LNOE.FX.feed();            // loud groan + wet feeding
       const line = LNOE.narrate(heroWon ? "heroWins" : "zombieWins");
-      if (voiceOn && line) setTimeout(function () { LNOE.TTS.speak(stripQuotes(line)); }, heroWon ? 450 : 1400);
+      if (heroWon) {
+        LNOE.FX.whack();   // a meaty hit on the zombie
+        if (voiceOn && line) setTimeout(function () { LNOE.TTS.speak(stripQuotes(line)); }, 450);
+      } else {
+        // Zombie wins: play the (quieter) zombie sound, then narrate once it ends.
+        LNOE.FX.feed(function () { if (voiceOn && line) LNOE.TTS.speak(stripQuotes(line)); });
+      }
     }
     LNOE.Store.saveTurn(entry).then(function () { closeResolveModal(true); })
       .catch(function () { closeResolveModal(true); });

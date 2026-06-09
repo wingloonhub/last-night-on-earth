@@ -20,8 +20,17 @@
    ========================================================================= */
 window.LNOE = window.LNOE || {};
 window.LNOE.soundFiles = {
-  music: "",       // looping background music
-  zombieWin: "",   // played when a Zombie wins a fight
-  heroHit: "",     // played when a Hero wins a fight
-  groan: ""        // generic zombie groan (used during narration)
+  music: "",                          // single looping track (leave blank if using levels below)
+  zombieWin: "sounds/zombie-sfx.mp3", // played when a Zombie wins a fight
+  heroHit: "",                        // played when a Hero wins a fight
+  groan: ""                           // generic zombie groan
 };
+
+// Background music that escalates with the Sun Track. The game splits the
+// night into this many stages and crossfades up the list as dawn approaches
+// (Level 3 plays in the last rounds). Leave empty to use the generated music.
+window.LNOE.musicLevels = [
+  "sounds/level1.mp3",  // early night
+  "sounds/level2.mp3",  // building tension
+  "sounds/level3.mp3"   // final rounds before dawn
+];

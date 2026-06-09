@@ -15,9 +15,10 @@
     return a;
   }
 
-  function Bot(setKey) {
+  function Bot(setKey, advanced) {
     this.setKey = setKey;
-    this.drawPile = shuffle(LNOE.buildDrawPile(setKey));
+    this.advanced = !!advanced;
+    this.drawPile = shuffle(LNOE.buildDrawPile(setKey, advanced));
     this.discard = [];
     this.hand = [];
   }

@@ -88,6 +88,7 @@ button { font-family: inherit; cursor: pointer; }
 .tab:hover { color: var(--ink); }
 .tab.active { background: var(--panel); border-color: var(--line); color: var(--ink); }
 .user-box { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+.hdr-select { max-width: 170px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: #11131a; color: var(--ink); font-family: inherit; font-size: 13px; }
 
 /* ===================== LAYOUT ===================== */
 main { max-width: 960px; margin: 0 auto; padding: 24px 16px 80px; }
