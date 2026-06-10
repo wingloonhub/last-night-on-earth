@@ -111,6 +111,56 @@
     return LNOE.cardNarration(cardName) + " The " + b + " is the target.";
   };
 
+  // ---- Hero EVENT cards: a thematic line + simple point-form "what to do". ----
+  LNOE.heroEventNarrations = {
+    "Recovery": "Steady hands press a cloth to the wound. The bleeding slows, and for one stolen breath there is hope in the dark.",
+    "Get Back You Devils": "No more running. The Hero plants their feet, looks the dead thing dead in the eyes, and finishes it for good.",
+    "Faith": "A whispered prayer rises over the moaning dark. Something in the Hero hardens — the grave will not have them tonight.",
+    "At Last…": "The nightmare that clung to them all night finally tears loose. Whatever the dead set in motion is undone.",
+    "Just a Scratch": "Teeth, claws, a sickening tear — and yet the Hero staggers back up, whole. Not tonight. Not like this.",
+    "Mr. Hyde, The Shop Teacher": "A familiar voice cuts through the screaming. The old Shop Teacher steps in, and the odds tilt.",
+    "Doc Brody, Country Physician": "The doctor’s bag snaps open. Whatever is broken, he has mended worse — and quickly.",
+    "Farmer Sty": "The farmer fills the doorway with a snarl and a raised tool. Nothing dead is getting past him this turn.",
+    "Principal Gomez": "Principal Gomez fixes the darkness with an iron stare. Even the dead seem to think twice.",
+    "Deputy Taylor": "The deputy’s steady voice pulls order out of the panic — just for a moment, in a town gone mad.",
+    "Jeb, The Grease Monkey": "Jeb wipes his hands, hefts the nearest heavy thing, and grins. He isn’t running anywhere."
+  };
+  LNOE.heroEventSteps = {
+    "Recovery": ["Pick any Hero who is NOT in a fight.", "Remove 1 wound from that Hero.", "Discard this card."],
+    "Get Back You Devils": ["You just beat a Zombie in a fight.", "Kill that Zombie now — no doubles needed.", "Discard this card."],
+    "Faith": ["Pick any Hero.", "That Hero rolls +1 Fight Dice until the end of the turn.", "If they are a Holy Hero, this card stays in play (max one). Otherwise discard it."],
+    "At Last…": ["Play at the START of a Hero Turn.", "Pick one Zombie card that is “Remains in Play”.", "Cancel and remove that card.", "Discard this card."],
+    "Just a Scratch": ["Play the moment a Hero is about to take a wound.", "Prevent that wound — the Hero takes no damage.", "Discard this card."],
+    "Mr. Hyde, The Shop Teacher": ["Choose ONE:", "• Cancel a fight that involves a Student Hero, or", "• Add or subtract 1 from any Fight Dice roll.", "Discard this card."],
+    "Doc Brody, Country Physician": ["Pick any Hero who is NOT in a fight.", "Fully heal that Hero (remove ALL wounds).", "If played on Becky, shuffle this card back into the Hero deck. Otherwise discard it."],
+    "Farmer Sty": ["Choose ONE:", "• Stop one Zombie from moving this turn, or", "• Add or subtract 1 from any Fight Dice roll.", "Discard this card."],
+    "Principal Gomez": ["Choose ONE:", "• Cancel any one Zombie card, or", "• Make a Zombie re-roll its Fight Dice.", "Discard this card."],
+    "Deputy Taylor": ["Choose ONE:", "• Cancel a fight involving a Law Enforcement or Strange Hero, or", "• Shuffle up to 3 cards from the Hero discard pile back into the deck.", "Discard this card."],
+    "Jeb, The Grease Monkey": ["Choose ONE:", "• Cancel any one Zombie card, or", "• Give a Hero +1 Fight Dice for the rest of the turn.", "Discard this card."]
+  };
+  // Match whatever the player typed to a known Event card (exact, then partial).
+  LNOE.matchHeroCard = function (name) {
+    const t = (name || "").toLowerCase().trim();
+    if (!t) return null;
+    const keys = Object.keys(LNOE.heroEventNarrations);
+    let hit = keys.find(function (k) { return k.toLowerCase() === t; });
+    if (hit) return hit;
+    return keys.find(function (k) {
+      const lk = k.toLowerCase();
+      return lk.indexOf(t) > -1 || t.indexOf(lk) > -1;
+    }) || null;
+  };
+  LNOE.heroCardNarration = function (name) {
+    const k = LNOE.matchHeroCard(name);
+    return (k && LNOE.heroEventNarrations[k]) ||
+      "The Hero plays their hand against the dark, and for a heartbeat the whole night seems to hold its breath.";
+  };
+  LNOE.heroCardSteps = function (name) {
+    const k = LNOE.matchHeroCard(name);
+    return (k && LNOE.heroEventSteps[k]) ||
+      ["Do exactly what the card says.", "Then discard it — unless the card says it stays in play."];
+  };
+
   // Suspense lead-ins, spoken just before a Zombie card's line to build dread.
   LNOE.suspenseOpeners = [
     "Wait… do you hear that?",

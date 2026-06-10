@@ -106,7 +106,7 @@
     timber_peak: ["Gun Shop", "General Store", "The Plant", "Office Trailer", "Lumber Yard",
       "Sawmill", "Power Relay Station", "Diner", "Tavern", "Bowling Alley", "Sheriff's Office", "Mine"],
     blood_forest: ["Airfield Office", "Airfield Runway", "Ranger Station", "Forest Trail", "Cabins", "Campground"],
-    growing_hunger: ["Supermarket", "Post Office", "Drug Store", "Library", "Antique Shop", "Factory", "Airplane Hangar"],
+    growing_hunger: ["Supermarket", "Post Office", "Drug Store", "Library", "Antique Shop", "Factory", "Airplane Hangar", "Freezer"],
     survival_fittest: []
   };
 

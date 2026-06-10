@@ -67,6 +67,7 @@
   /* ----------------------------- START ----------------------------- */
   function start(gameState) {
     G = gameState;
+    G.saveId = "g" + new Date().getTime();   // unique id for this game's auto-save
     G.bot = new LNOE.Bot(G.baseSet, G.advanced);
     // The Zombie player holds cards from the start, so the Bot can intervene
     // even during the very first Hero turn.
@@ -119,6 +120,84 @@
     return G.players.map(function (p, i) { return i; }).filter(function (i) { return !G.players[i].dead; });
   }
 
+  /* ----------------- Hero weapons & event-card helpers -------------- */
+  // Weapons the Heroes can carry, read from the loaded Hero deck.
+  function weaponList() {
+    const deck = (LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || [];
+    return deck.filter(function (c) {
+      return c.category === "Hand Weapon" || c.category === "Ranged Weapon";
+    }).map(function (c) {
+      const ranged = c.category === "Ranged Weapon";
+      return { name: c.name, ranged: ranged, gun: ranged && /\bGun\b/.test(c.text || "") };
+    });
+  }
+  function findWeapon(name) {
+    if (!name) return null;
+    return weaponList().find(function (w) { return w.name === name; }) || null;
+  }
+  // A <select> for choosing a carried weapon (Hand / Ranged), with "no weapon".
+  function weaponSelect(id, currentName) {
+    const ws = weaponList();
+    function opts(list) {
+      return list.map(function (w) {
+        return '<option value="' + esc(w.name) + '"' + (currentName === w.name ? " selected" : "") + ">" + esc(w.name) + "</option>";
+      }).join("");
+    }
+    return '<select id="' + esc(id) + '" class="wpn-select"><option value="">— no weapon (bare hands) —</option>' +
+      '<optgroup label="Hand weapons (whack)">' + opts(ws.filter(function (w) { return !w.ranged; })) + "</optgroup>" +
+      '<optgroup label="Ranged weapons (gunshot)">' + opts(ws.filter(function (w) { return w.ranged; })) + "</optgroup></select>";
+  }
+  function weaponLabel(w) { return w ? w.name + (w.ranged ? " (ranged)" : " (hand)") : "bare hands"; }
+
+  // A Hero carries up to 4 things: max 2 weapons + max 2 items. Normalise older
+  // saves (which had a single `weapon`) into the new weapons/items arrays.
+  function normalizeInventory(p) {
+    if (!p) return;
+    if (!p.weapons) p.weapons = p.weapon ? [p.weapon] : [];
+    if (!p.items) p.items = [];
+    if (p.weapon) delete p.weapon;
+  }
+  function carriedWeapons(p) { return (p && p.weapons || []).filter(Boolean); }
+  // Options for a "fighting with" picker: bare hands + the Hero's carried weapons
+  // (value is the index into carriedWeapons(p), or -1 for bare hands).
+  function fightWeaponOptions(p) {
+    let s = '<option value="-1">bare hands</option>';
+    carriedWeapons(p).forEach(function (w, i) {
+      s += '<option value="' + i + '">' + esc(weaponLabel(w)) + "</option>";
+    });
+    return s;
+  }
+  function fightWeaponSelect(id, p) {
+    return '<select id="' + esc(id) + '" class="wpn-select">' + fightWeaponOptions(p) + "</select>";
+  }
+  function fightWeaponFromSelect(id, p) {
+    const sel = document.getElementById(id);
+    const idx = sel ? +sel.value : -1;
+    return idx >= 0 ? (carriedWeapons(p)[idx] || null) : null;
+  }
+  // Items a Hero can carry, read from the Hero deck (for the item autocomplete).
+  function heroItemNames() {
+    const deck = (LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || [];
+    return deck.filter(function (c) { return c.category === "Item"; }).map(function (c) { return c.name; });
+  }
+  function heroItemDatalist() {
+    return '<datalist id="hero-items">' + heroItemNames().map(function (n) {
+      return '<option value="' + esc(n) + '"></option>';
+    }).join("") + "</datalist>";
+  }
+
+  // Event-type Hero cards (Event + Townsfolk) for the play-a-card autocomplete.
+  function heroEventNames() {
+    const deck = (LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || [];
+    return deck.filter(function (c) { return c.category === "Event" || c.category === "Townsfolk"; })
+      .map(function (c) { return c.name; });
+  }
+  function heroEventDatalist() {
+    return '<datalist id="hero-events">' + heroEventNames().map(function (n) {
+      return '<option value="' + esc(n) + '"></option>';
+    }).join("") + "</datalist>";
+  }
+
   // The "Heroes" roster card: mark deaths + add players mid-game. Shared by
   // the Hero and Zombie screens.
   function rosterCard() {
@@ -136,15 +215,46 @@
   function renderRoster() {
     const el = document.getElementById("g-roster");
     if (!el) return;
-    el.innerHTML = G.players.map(function (p, i) {
-      return '<div class="player-status' + (p.dead ? " dead" : "") + '">' +
-        '<span class="ps-name">' + (p.dead ? "☠ " : "🧍 ") + esc(p.hero) + ' <span class="hint">(' + esc(p.name) + ")</span></span>" +
-        '<button class="btn ' + (p.dead ? "btn-green" : "btn-ghost") + '" data-i="' + i + '">' +
+    G.players.forEach(normalizeInventory);
+    el.innerHTML = heroItemDatalist() + G.players.map(function (p, i) {
+      const w = p.weapons;
+      let h = '<div class="player-status' + (p.dead ? " dead" : "") + '">';
+      h += '<span class="ps-name">' + (p.dead ? "☠ " : "🧍 ") + esc(p.hero) + ' <span class="hint">(' + esc(p.name) + ")</span></span>";
+      h += '<button class="btn ' + (p.dead ? "btn-green" : "btn-ghost") + '" data-i="' + i + '" style="margin-left:auto">' +
         (p.dead ? "Bring back" : "Mark dead ☠") + "</button></div>";
+      // Inventory row: up to 2 weapons + up to 2 items.
+      h += '<div class="inv-row" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 10px 26px">';
+      h += '<span class="hint">🗡 Weapons (max 2):</span>';
+      h += weaponSelect("ros-wpn-" + i + "-0", w[0] ? w[0].name : "");
+      h += weaponSelect("ros-wpn-" + i + "-1", w[1] ? w[1].name : "");
+      h += '<span class="hint">🎒 Items (max 2):</span>';
+      h += '<input type="text" id="ros-itm-' + i + '-0" list="hero-items" class="inv-item" value="' + esc(p.items[0] || "") + '" placeholder="Item…" style="flex:0 0 130px">';
+      h += '<input type="text" id="ros-itm-' + i + '-1" list="hero-items" class="inv-item" value="' + esc(p.items[1] || "") + '" placeholder="Item…" style="flex:0 0 130px">';
+      h += "</div>";
+      return h;
     }).join("");
     el.querySelectorAll("button[data-i]").forEach(function (b) {
       b.onclick = function () { const i = +b.dataset.i; G.players[i].dead = !G.players[i].dead; renderRoster(); };
     });
+    G.players.forEach(function (p, i) {
+      function readInv() {
+        const w0 = document.getElementById("ros-wpn-" + i + "-0");
+        const w1 = document.getElementById("ros-wpn-" + i + "-1");
+        G.players[i].weapons = [w0 && findWeapon(w0.value), w1 && findWeapon(w1.value)].filter(Boolean);
+        const t0 = document.getElementById("ros-itm-" + i + "-0");
+        const t1 = document.getElementById("ros-itm-" + i + "-1");
+        G.players[i].items = [t0 && t0.value.trim(), t1 && t1.value.trim()].filter(Boolean);
+      }
+      ["ros-wpn-" + i + "-0", "ros-wpn-" + i + "-1"].forEach(function (id) {
+        const el2 = document.getElementById(id);
+        if (el2) el2.onchange = function () { readInv(); autoSave(); };
+      });
+      ["ros-itm-" + i + "-0", "ros-itm-" + i + "-1"].forEach(function (id) {
+        const el2 = document.getElementById(id);
+        if (el2) el2.onchange = function () { readInv(); autoSave(); };
+      });
+    });
+    autoSave();
     const sel = document.getElementById("g-newhero");
     if (sel) {
       const taken = G.players.map(function (p) { return p.hero; });
@@ -305,6 +415,7 @@
 
   /* ----------------------------- HERO TURN -------------------------- */
   function renderHero() {
+    G.players.forEach(normalizeInventory);
     const p = G.players[G.playerIndex];
     let h = header();
 
@@ -329,7 +440,7 @@
     h += "</div>";
 
     h += '<div class="card"><h3>Your actions this turn — do them in order</h3>';
-    h += '<p class="section-help">Work down the list in order. Mark each step “Did this” or “Skip” to unlock the next one. The Bot may interrupt at any time.</p>';
+    h += '<p class="section-help">Work down the list in order. Mark each step “Did this” or “Skip” to unlock the next one. The Zombie may interrupt at any time.</p>';
     h += '<div class="action-steps">';
     HERO_ACTIONS.forEach(function (a, i) {
       const stateCls = i < G.heroStep ? "resolved" : (i === G.heroStep ? "active" : "locked");
@@ -339,14 +450,15 @@
       if (stateCls === "active") {
         // The Fight step needs the Zombie (Bot) to roll back.
         if (i === 3) {
-          h += '<div class="mt"><span class="hint">A fight means BOTH sides roll. Roll the Zombie’s dice for the Bot, then compare the highest to the Hero’s highest die (the Hero loses ties unless a card says otherwise):</span>';
+          h += '<div class="mt"><span class="hint">A fight means BOTH sides roll. Roll the Zombie’s dice, then compare the highest to the Hero’s highest die (the Hero loses ties unless a card says otherwise):</span>';
           h += '<div class="toolbar mt"><label class="hint">Zombie dice: <select id="hf-ndice">';
           for (let n = 1; n <= 6; n++) h += '<option value="' + n + '"' + (n === 1 ? " selected" : "") + ">" + n + "</option>";
           h += '</select></label><button class="btn btn-rust" id="hf-roll">🎲 Zombie rolls</button></div>';
           h += '<div id="hf-dice-out" class="dice-area"></div>';
           h += '<p class="hint">A basic Zombie rolls 1 die. Add dice for cards like <em>Uuuurrrggghh!</em> (+2) or <em>Cornered</em>.</p>';
-          h += '<label class="chk mt"><input type="checkbox" id="hf-gun"> The Hero killed it with a Gun</label>';
-          h += '<div class="row mt"><span style="flex-basis:100%" class="hint">State the result — the Bot may then intervene with a card:</span>';
+          h += '<div class="mt"><label class="hint">🗡 Fighting with: ' + fightWeaponSelect("hf-weapon", p) + "</label>";
+          h += '<span class="hint" style="display:block;margin-top:4px">Pick which carried weapon you used. Hand weapon → a heavy whack on a win; ranged weapon → a gunshot. Manage what each Hero carries in the Heroes list below.</span></div>';
+          h += '<div class="row mt"><span style="flex-basis:100%" class="hint">State the result — the Zombie may then intervene with a card:</span>';
           h += '<button class="btn btn-green" id="hf-won">🧍 Hero WON the fight</button>';
           h += '<button class="btn btn-primary" id="hf-lost">☠ Hero LOST the fight</button></div></div>';
         }
@@ -362,10 +474,11 @@
     if (G.heroStep >= HERO_ACTIONS.length) h += '<p class="hint mt">All actions handled — end the turn below when ready.</p>';
     h += "</div>";
 
-    // Hero plays a card → the Bot secretly decides whether to fight back.
-    h += '<div class="card"><h3>☠ Hero plays a card — the Bot may strike back</h3>';
-    h += '<p class="section-help">When a Hero plays a card, type its name and press play. The Bot secretly decides whether to answer with one of its own Zombie cards — you don’t see its hand and you don’t control it. If it plays a card, you’ll be told what it does.</p>';
-    h += '<label class="field">Card the Hero plays<input type="text" id="g-herocard" placeholder="e.g. Faith / Pistol / Adrenaline / First Aid Kit"></label>';
+    // Hero plays an Event card → the Zombie secretly decides whether to strike back.
+    h += '<div class="card"><h3>☠ Hero plays an Event card — the Zombie may strike back</h3>';
+    h += '<p class="section-help">When a Hero plays an <strong>Event</strong> card, start typing its name (it auto-completes) and press play. The Zombie secretly decides whether to answer with one of its own Zombie cards — you don’t see its hand and you don’t control it. If it plays a card, you’ll be told what it does.</p>';
+    h += '<label class="field">Event card the Hero plays' + heroEventDatalist() +
+      '<input type="text" id="g-herocard" list="hero-events" placeholder="Start typing… e.g. Faith, Get Back You Devils, Just a Scratch"></label>';
     h += '<button class="btn btn-rust" id="g-playcard">🧍 Hero plays this →</button>';
     h += "</div>";
 
@@ -411,13 +524,13 @@
     };
     const hfWon = document.getElementById("hf-won");
     if (hfWon) hfWon.onclick = function () {
-      const gun = document.getElementById("hf-gun").checked;
-      startResolution({ type: "fight", heroWinning: true, gun: gun,
-        title: "Hero WON the fight" + (gun ? " (using a Gun)" : "") });
+      const w = fightWeaponFromSelect("hf-weapon", p);
+      startResolution({ type: "fight", heroWinning: true, gun: !!(w && w.gun), weapon: w,
+        title: "Hero WON the fight (" + weaponLabel(w) + ")" });
     };
     const hfLost = document.getElementById("hf-lost");
     if (hfLost) hfLost.onclick = function () {
-      startResolution({ type: "fight", heroWinning: false, gun: false, title: "Hero LOST the fight" });
+      startResolution({ type: "fight", heroWinning: false, gun: false, weapon: fightWeaponFromSelect("hf-weapon", p), title: "Hero LOST the fight" });
     };
 
     document.getElementById("g-playcard").onclick = function () {
@@ -427,14 +540,15 @@
     };
     wireRoster();
     document.getElementById("g-endhero").onclick = endHeroTurn;
+    autoSave();
   }
 
   function botHandSummary() {
     return '<div class="hand-summary mt">' + handSummaryInner() + "</div>";
   }
   function handSummaryInner() {
-    // Count only — the Bot's hand is hidden from the players.
-    return '<span class="hint">The Bot is secretly holding ' + G.bot.hand.length +
+    // Count only — the Zombie's hand is hidden from the players.
+    return '<span class="hint">The Zombie is secretly holding ' + G.bot.hand.length +
       " Zombie card(s) · " + G.bot.cardsLeft() + " left in its deck. You never see what they are.</span>";
   }
 
@@ -464,7 +578,7 @@
   function renderZombie() {
     let h = header();
     h += '<div class="turn-banner">';
-    h += '<div class="phase">Zombie Turn · the Bot plays</div>';
+    h += '<div class="phase">Zombie Turn · the Zombie plays</div>';
     h += '<div class="who">☠ Zombie Turn #' + G.turnNumber + "</div>";
     h += "</div>";
 
@@ -477,10 +591,10 @@
     if (G.sun >= G.sunMax) h += '<p class="hint" style="color:#ffb3b3">⚠ The sun has reached the final hour — the night ends as soon as the next Zombie turn begins.</p>';
     h += "</div>";
 
-    // 2 · The Bot plays its own cards — automatically and in secret.
+    // 2 · The Zombie plays its own cards — automatically and in secret.
     h += '<div class="card"><h3>2 · Draw Zombie cards</h3>';
-    h += '<p class="section-help">The Bot draws and chooses its own cards in secret — you don’t control it. Reveal only what it decides to play this turn, then apply each effect to the board.</p>';
-    h += '<button class="btn btn-rust btn-lg" id="z-run">☠ Reveal the Bot’s play</button>';
+    h += '<p class="section-help">The Zombie draws and chooses its own cards in secret — you don’t control it. Reveal only what it decides to play this turn, then apply each effect to the board.</p>';
+    h += '<button class="btn btn-rust btn-lg" id="z-run">☠ Reveal the Zombie’s play</button>';
     h += '<div id="z-run-out" class="mt"></div>';
     h += '<hr class="divider">' + botHandSummary();
     h += '<div id="z-played" class="mt"></div>';
@@ -502,7 +616,9 @@
     h += '<button class="btn btn-rust" id="z-roll">🎲 Roll dice</button>';
     h += "</div>";
     h += '<div id="z-dice-out" class="dice-area"></div>';
-    h += '<div class="row mt"><span style="flex-basis:100%" class="hint">For each fight, state the result — the Bot may intervene with a card:</span>';
+    h += '<div class="toolbar mt"><label class="hint">Hero in this fight: <select id="zf-hero"></select></label>';
+    h += '<label class="hint">Fighting with: <select id="zf-weapon"></select></label></div>';
+    h += '<div class="row mt"><span style="flex-basis:100%" class="hint">For each fight, state the result — the Zombie may intervene with a card:</span>';
     h += '<button class="btn btn-green" id="zf-won">🧍 Hero won this fight</button>';
     h += '<button class="btn btn-primary" id="zf-lost">☠ Hero lost this fight</button></div>';
     h += "</div>";
@@ -517,9 +633,10 @@
     h += "</div>";
 
     // Aux · Hero reactions during the Zombie turn (a helper, not part of the order).
-    h += '<div class="card"><h3>☠ Did a Hero play a card?</h3>';
-    h += '<p class="section-help">If a Hero plays a card during your turn, type it here. The Bot decides whether to intervene, and you can counter back and forth until it’s settled.</p>';
-    h += '<label class="field">Hero card played<input type="text" id="z-herocard" placeholder="e.g. Faith / Shotgun / Adrenaline"></label>';
+    h += '<div class="card"><h3>☠ Did a Hero play an Event card?</h3>';
+    h += '<p class="section-help">If a Hero plays an <strong>Event</strong> card during your turn, start typing its name (it auto-completes) here. The Zombie decides whether to intervene, and you can counter back and forth until it’s settled.</p>';
+    h += '<label class="field">Event card played' + heroEventDatalist() +
+      '<input type="text" id="z-herocard" list="hero-events" placeholder="Start typing… e.g. Faith, Recovery, At Last…"></label>';
     h += '<button class="btn btn-rust" id="z-react">🧍 Hero plays this →</button>';
     h += "</div>";
 
@@ -535,6 +652,7 @@
     wireZombie();
     wireRoster();
     renderPlayed();
+    autoSave();
   }
 
   function wireZombie() {
@@ -550,7 +668,7 @@
       const result = runBotTurn();
       let html = "";
       if (!result.played.length) {
-        html = '<div class="narration voice-on">The dead shuffle and moan in the dark, but the Bot keeps its cards hidden this turn. Move the Zombies and fight as normal.</div>';
+        html = '<div class="narration voice-on">The dead shuffle and moan in the dark, but the Zombie keeps its cards hidden this turn. Move the Zombies and fight as normal.</div>';
       } else {
         result.played.forEach(function (p, idx) {
           html += '<div class="card-draw">';
@@ -560,14 +678,14 @@
           html += '<div class="rnarr" id="zc-narr-' + idx + '">“' + esc(p.narration) + '”</div>';
           html += '<div class="csimple"><strong>Do this:</strong> ' + esc(p.simple) + "</div>";
           if (cardNeedsTarget(p.text)) {
-            html += '<div class="csimple mt" id="zc-target-' + idx + '">🏚 The Bot targets: <strong>' +
+            html += '<div class="csimple mt" id="zc-target-' + idx + '">🏚 The Zombie targets: <strong>' +
               esc(p.target || "— none set —") + "</strong></div>";
             html += '<div class="mt"><button class="btn btn-rust zc-reroll" data-i="' + idx + '">🎲 Re-randomise the area</button> ' +
               '<span class="hint">' + (cardNoBuilding(p.text)
                 ? "This card can’t target a building — it picks another area on your board."
                 : "Roll a different building/area for this card.") + "</span></div>";
           } else if (cardNeedsRoll(p.text)) {
-            html += '<div class="mt"><button class="btn btn-rust zc-roll" data-i="' + idx + '">🎲 Roll the dice for the Bot</button> ' +
+            html += '<div class="mt"><button class="btn btn-rust zc-roll" data-i="' + idx + '">🎲 Roll the dice for the Zombie</button> ' +
               '<span class="zc-roll-out hint"></span></div>';
           }
           if (cardCanLose(p.text)) {
@@ -579,7 +697,7 @@
       }
       out.innerHTML = html;
       G.zturn.botRan = true;
-      this.disabled = true; this.textContent = "☠ The Bot has played";
+      this.disabled = true; this.textContent = "☠ The Zombie has played";
       narrationMusic(14000); // horror background music for the reveal
       LNOE.FX.stinger();
       setTimeout(function () { LNOE.FX.groan(); }, 300);
@@ -591,7 +709,7 @@
       out.querySelectorAll(".zc-roll").forEach(function (b) {
         b.onclick = function () {
           const d = 1 + Math.floor(Math.random() * 6);
-          b.nextElementSibling.innerHTML = '🎲 The Bot rolled a <strong>' + d +
+          b.nextElementSibling.innerHTML = '🎲 The Zombie rolled a <strong>' + d +
             "</strong> — apply that many (spaces moved / Zombies spawned / building number).";
           LNOE.FX.groan();
         };
@@ -605,7 +723,7 @@
           p.target = newT;
           p.narration = LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(p.name, newT);
           const tEl = document.getElementById("zc-target-" + i);
-          if (tEl) tEl.innerHTML = "🏚 The Bot targets: <strong>" + esc(newT || "(add a building/area in Setup)") + "</strong>";
+          if (tEl) tEl.innerHTML = "🏚 The Zombie targets: <strong>" + esc(newT || "(add a building/area in Setup)") + "</strong>";
           const nEl = document.getElementById("zc-narr-" + i);
           if (nEl) nEl.innerHTML = "“" + esc(p.narration) + "”";
           LNOE.FX.groan();
@@ -631,11 +749,38 @@
       document.getElementById("z-dice-out").innerHTML = html;
     };
     document.getElementById("z-move").oninput = function () { G.zturn.movement = this.value; };
+    // "Hero in this fight" + "Fighting with" — the chosen weapon sets the win sound.
+    G.players.forEach(normalizeInventory);
+    const zfHero = document.getElementById("zf-hero");
+    function fillZfWeapon() {
+      const hi = document.getElementById("zf-hero");
+      const wi = document.getElementById("zf-weapon");
+      if (hi && wi) wi.innerHTML = fightWeaponOptions(G.players[+hi.value]);
+    }
+    if (zfHero) {
+      zfHero.innerHTML = aliveIndices().map(function (i) {
+        const p = G.players[i];
+        const ws = carriedWeapons(p);
+        return '<option value="' + i + '">' + esc(p.hero) +
+          (ws.length ? " — " + esc(ws.map(function (w) { return w.name; }).join(", ")) : " — bare hands") + "</option>";
+      }).join("");
+      zfHero.onchange = fillZfWeapon;
+    }
+    fillZfWeapon();
+    function zfWeapon() {
+      const hi = document.getElementById("zf-hero");
+      const wi = document.getElementById("zf-weapon");
+      const p = hi ? G.players[+hi.value] : null;
+      const idx = wi ? +wi.value : -1;
+      return idx >= 0 ? (carriedWeapons(p)[idx] || null) : null;
+    }
     document.getElementById("zf-won").onclick = function () {
-      startResolution({ type: "fight", heroWinning: true, gun: false, title: "Hero won the fight" });
+      const w = zfWeapon();
+      startResolution({ type: "fight", heroWinning: true, gun: !!(w && w.gun), weapon: w,
+        title: "Hero won the fight (" + weaponLabel(w) + ")" });
     };
     document.getElementById("zf-lost").onclick = function () {
-      startResolution({ type: "fight", heroWinning: false, gun: false, title: "Hero lost the fight" });
+      startResolution({ type: "fight", heroWinning: false, gun: false, weapon: zfWeapon(), title: "Hero lost the fight" });
     };
     document.getElementById("z-react").onclick = function () {
       const name = document.getElementById("z-herocard").value.trim();
@@ -672,7 +817,7 @@
   function spawnPitsList() {
     const pits = (G.spawnAreas && G.spawnAreas.length) ? G.spawnAreas : [];
     if (!pits.length) {
-      return '<p class="hint">No spawning pits labelled yet. Add one below (or in Setup) so the Bot knows where the dead rise.</p>';
+      return '<p class="hint">No spawning pits labelled yet. Add one below (or in Setup) so the Zombie knows where the dead rise.</p>';
     }
     return '<span class="hint">Spawning pits on the board:</span> ' + pits.map(function (a, i) {
       return '<span class="pill tag-immediate">☠ ' + esc(a) +
@@ -759,6 +904,7 @@
       // Zombie groan AFTER the spawn step, as requested.
       if (LNOE.FX) LNOE.FX.groan();
       if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(G.zturn.spawnNarr)); }, 250);
+      autoSave();
     };
   }
 
@@ -783,8 +929,26 @@
   function startResolution(context) {
     G.resolve = { context: context, steps: [], awaiting: "bot", finalOutcome: "" };
     G.resolve.steps.push({ who: "hero", label: context.title });
+    // If this is a fight the Bot won't contest, the result the Hero already
+    // stated stands — settle it right away rather than opening a second screen
+    // that just repeats the dice roll and the win/lose buttons.
+    if (context.type === "fight" && !botDecideIntervention(context)) {
+      finishResolution(context.heroWinning ? "Heroes won the fight" : "Zombies won the fight");
+      return;
+    }
+    // A Hero played an Event card: narrate it thematically and prepare the
+    // simple point-form summary of what to do (shown in the modal).
+    if (context.type === "card") {
+      context.cardName = context.heroCardText;
+      context.heroCardNarr = LNOE.heroCardNarration(context.heroCardText);
+      context.heroCardSteps = LNOE.heroCardSteps(context.heroCardText);
+      narrationMusic(8000);
+      LNOE.FX.stinger();
+      setTimeout(function () { LNOE.FX.groan(); }, 250);
+      if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(context.heroCardNarr)); }, 500);
+    }
     openResolveModal();
-    setTimeout(botRespond, 450); // brief "Bot is deciding…" beat
+    setTimeout(botRespond, 450); // brief "Zombie is deciding…" beat
   }
 
   // The Bot picks the best card to intervene with, or null to hold back.
@@ -817,10 +981,10 @@
     if (choice) {
       G.bot.playFromHand(choice.uid);
       const narr = announceBotCard(choice);
-      r.steps.push({ who: "bot", card: choice.name, label: "Bot plays " + choice.name + ".",
+      r.steps.push({ who: "bot", card: choice.name, label: "Zombie plays " + choice.name + ".",
         simple: choice.simple, narration: narr });
     } else {
-      r.steps.push({ who: "bot", label: "The Bot holds back — no card played." });
+      r.steps.push({ who: "bot", label: "The Zombie holds back — no card played." });
       r.botPassed = true;
     }
     r.awaiting = "hero";   // hand control back to the Hero (re-roll / counter / settle)
@@ -866,15 +1030,24 @@
     // 1) The exchange so far.
     h += '<div class="resolve-log">';
     r.steps.forEach(function (s) {
-      h += '<div class="rstep ' + s.who + '"><strong>' + (s.who === "bot" ? "☠ Bot" : "🧍 Hero") + ":</strong> " + esc(s.label || s.card || "");
+      h += '<div class="rstep ' + s.who + '"><strong>' + (s.who === "bot" ? "☠ Zombie" : "🧍 Hero") + ":</strong> " + esc(s.label || s.card || "");
       if (s.narration) h += '<div class="rnarr">“' + esc(s.narration) + '”</div>';
       if (s.simple) h += '<div class="hint">What to do: ' + esc(s.simple) + "</div>";
       h += "</div>";
     });
     h += "</div>";
 
+    // Event-card thematic line + simple point-form summary (card plays only).
+    if (!isFight && r.context.heroCardSteps) {
+      h += '<div class="rv-panel"><div class="rv-panel-h">🃏 ' + esc(r.context.cardName || "Event card") + "</div>";
+      if (r.context.heroCardNarr) h += '<div class="narration voice-on">' + esc(r.context.heroCardNarr) + "</div>";
+      h += '<div class="csimple mt"><strong>What to do (simple):</strong><ul style="margin:6px 0 0 18px">' +
+        r.context.heroCardSteps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ul></div>";
+      h += "</div>";
+    }
+
     if (r.awaiting === "bot") {
-      h += '<p class="bot-thinking">☠ The Bot is deciding…</p>';
+      h += '<p class="bot-thinking">☠ The Zombie is deciding…</p>';
       h += '<p class="hint mt" id="rv-saved"></p></div>';
       m.innerHTML = h; m.classList.add("open");
       document.getElementById("rv-x").onclick = function () { closeResolveModal(true); };
@@ -947,7 +1120,7 @@
     const note = document.getElementById("rv-saved");
     if (note) note.textContent = "Saving…";
     const played = r.steps.filter(function (s) { return s.card; })
-      .map(function (s) { return (s.who === "bot" ? "Bot: " : "Hero: ") + s.card; });
+      .map(function (s) { return (s.who === "bot" ? "Zombie: " : "Hero: ") + s.card; });
     const entry = {
       turnNumber: G.turnNumber,
       round: G.round,
@@ -968,7 +1141,9 @@
       narrationMusic(8000);
       const line = LNOE.narrate(heroWon ? "heroWins" : "zombieWins");
       if (heroWon) {
-        LNOE.FX.whack();   // a meaty hit on the zombie
+        // Ranged weapon → gunshot; hand weapon (or bare hands) → a meaty whack.
+        const w = r.context.weapon;
+        if (w && w.ranged) LNOE.FX.gunshot(); else LNOE.FX.whack();
         if (voiceOn && line) setTimeout(function () { LNOE.TTS.speak(stripQuotes(line)); }, 450);
       } else {
         // Zombie wins: play the (quieter) zombie sound, then narrate once it ends.
@@ -1079,6 +1254,7 @@
           zombieTurns: G.turnNumber,
           timestamp: new Date().toISOString()
         };
+        if (G) LNOE.Store.deleteGame(G.saveId);   // the game is over — drop its auto-save
         LNOE.Store.saveResult(result).then(function () {
           m.classList.remove("open");
           G = null; LNOE.TTS.stop(); LNOE.FX.stopAll(); LNOE.Setup.forceSetup();
@@ -1088,9 +1264,64 @@
     render(null);
   }
 
+  /* --------------------------- SAVE / RESUME ------------------------ */
+  // Snapshot the live game into a plain, JSON-safe object (the Bot is an
+  // instance with methods, so we store only its card piles and rebuild it).
+  function serializeGame() {
+    if (!G || !G.bot) return null;
+    return {
+      saveId: G.saveId,
+      baseSet: G.baseSet, baseSetName: G.baseSetName,
+      expansions: G.expansions, scenario: G.scenario,
+      players: G.players, buildings: G.buildings || [], spawnAreas: G.spawnAreas || [],
+      advanced: G.advanced, startedAt: G.startedAt, introText: G.introText,
+      sunMax: G.sunMax, sun: G.sun, round: G.round, turnNumber: G.turnNumber,
+      playerIndex: G.playerIndex, phase: G.phase,
+      zturn: G.zturn, heroStep: G.heroStep, heroDone: G.heroDone,
+      bot: { setKey: G.bot.setKey, advanced: G.bot.advanced,
+             drawPile: G.bot.drawPile, discard: G.bot.discard, hand: G.bot.hand }
+    };
+  }
+  // Auto-save the current game (called after every screen render / key action).
+  function autoSave() {
+    if (!G || !G.saveId || !G.bot) return;
+    try {
+      LNOE.Store.saveGame({
+        id: G.saveId,
+        label: G.scenario.name + " · " + G.players.map(function (p) { return p.hero; }).join(", "),
+        round: G.round, turnNumber: G.turnNumber, phase: G.phase,
+        savedAt: new Date().toISOString(),
+        state: serializeGame()
+      });
+    } catch (e) { /* storage full / private mode — ignore */ }
+  }
+  // Restore a saved game and drop the player straight back where they left off.
+  function resumeGame(state) {
+    if (!state) return;
+    G = {
+      saveId: state.saveId,
+      baseSet: state.baseSet, baseSetName: state.baseSetName,
+      expansions: state.expansions || [], scenario: state.scenario,
+      players: state.players || [], buildings: state.buildings || [], spawnAreas: state.spawnAreas || [],
+      advanced: state.advanced, startedAt: state.startedAt, introText: state.introText,
+      sunMax: state.sunMax, sun: state.sun, round: state.round, turnNumber: state.turnNumber,
+      playerIndex: state.playerIndex, phase: state.phase,
+      zturn: state.zturn || {}, heroStep: state.heroStep || 0, heroDone: state.heroDone || []
+    };
+    const b = new LNOE.Bot(state.bot.setKey, state.bot.advanced);
+    b.drawPile = state.bot.drawPile || [];
+    b.discard = state.bot.discard || [];
+    b.hand = state.bot.hand || [];
+    G.bot = b;
+    LNOE.switchTab("start");
+    if (musicOn && LNOE.FX) LNOE.FX.startMusic(musicStage());
+    if (G.phase === "zombie") renderZombie(); else renderHero();
+  }
+
   LNOE.Game = {
     init: function () {},
     start: start,
-    isRunning: function () { return !!G; }
+    isRunning: function () { return !!G; },
+    resume: function (id) { const s = LNOE.Store.getGame(id); if (s) resumeGame(s.state); }
   };
 })();

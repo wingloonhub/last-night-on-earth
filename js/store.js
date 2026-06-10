@@ -134,6 +134,32 @@
     },
     getDeckOverride: function (kind, setKey) {
       return LS.get("lnoe_deck_" + kind + "_" + setKey, null);
+    },
+
+    /* ---------- SAVED GAMES (auto-save / resume) ----------
+       Stored in localStorage so a game survives the app being closed. Keyed by
+       user so each account keeps its own saves. Newest first, capped at 12. */
+    saveGame: function (entry) {
+      const uid = Store.currentUid() || "anon";
+      const key = "lnoe_saves_" + uid;
+      let arr = LS.get(key, []);
+      arr = arr.filter(function (s) { return s.id !== entry.id; });
+      arr.unshift(entry);
+      if (arr.length > 12) arr = arr.slice(0, 12);
+      LS.set(key, arr);
+      return arr;
+    },
+    listGames: function () {
+      const uid = Store.currentUid() || "anon";
+      return LS.get("lnoe_saves_" + uid, []);
+    },
+    getGame: function (id) {
+      return Store.listGames().find(function (s) { return s.id === id; }) || null;
+    },
+    deleteGame: function (id) {
+      const uid = Store.currentUid() || "anon";
+      const key = "lnoe_saves_" + uid;
+      LS.set(key, LS.get(key, []).filter(function (s) { return s.id !== id; }));
     }
   };
 

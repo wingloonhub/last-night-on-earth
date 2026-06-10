@@ -4,6 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Last Night on Earth Game</title>
+
+  <!-- Add-to-home-screen (named "LNOE" with a zombie icon) -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0c0d10" />
+  <link rel="icon" type="image/png" href="icons/favicon-32.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="LNOE" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Creepster&family=Special+Elite&family=Oswald:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
@@ -13,7 +23,7 @@
   <div id="auth-screen" class="auth-screen">
     <div class="auth-card">
       <h1 class="game-title">Last Night<span>on</span>Earth</h1>
-      <p class="tagline">The Bot plays the Zombies. You fight to survive.</p>
+      <p class="tagline">The Zombie plays itself. You fight to survive.</p>
 
       <div id="auth-error" class="auth-error" hidden></div>
       <div id="auth-info" class="auth-info" hidden></div>

@@ -22,7 +22,8 @@ window.LNOE = window.LNOE || {};
 window.LNOE.soundFiles = {
   music: "",                          // single looping track (leave blank if using levels below)
   zombieWin: "sounds/Zombie Groan.mp3", // played when a Zombie wins a fight (quieter)
-  heroHit: "",                          // played when a Hero wins a fight
+  heroHit: "",                          // played when a Hero wins with a HAND weapon (whack)
+  heroShoot: "",                        // played when a Hero wins with a RANGED weapon (gunshot)
   groan: "sounds/Zombie Groan.mp3"      // generic zombie groan (card reveals, after spawn, narration)
 };
 
