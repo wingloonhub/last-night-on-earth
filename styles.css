@@ -251,3 +251,20 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .rnarr { margin-top: 6px; font-family: "Special Elite", monospace; color: #d9cfc5; font-style: italic; }
 .rv-panel { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-top: 12px; }
 .rv-panel-h { font-weight: 700; color: var(--rust); margin-bottom: 6px; }
+
+/* ===================== HERO INVENTORY ===================== */
+.hero-inv { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; margin-bottom: 9px; background: rgba(255,255,255,.02); }
+.hero-inv.dead { opacity: .5; }
+.hero-inv-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hero-inv-top .inv-count { margin-left: auto; white-space: nowrap; }
+.inv-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 7px; }
+.inv-tag { font-size: 12px; color: var(--muted); min-width: 78px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 5px 3px 10px; font-size: 13px; }
+.chip-wpn { background: #341c1f; border-color: #5a2f33; }
+.chip-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); background: rgba(255,255,255,.08); border-radius: 6px; padding: 1px 5px; }
+.chip-x { display: inline-flex; width: 18px; height: 18px; align-items: center; justify-content: center; border-radius: 50%; color: var(--muted); text-decoration: none; }
+.chip-x:hover { color: #fff; background: var(--blood); }
+.inv-item { width: 130px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.inv-item:disabled { opacity: .4; }
+.wpn-select { padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); max-width: 220px; }
+.btn-sm { padding: 5px 9px; font-size: 13px; }

@@ -253,38 +253,54 @@
       n.start(t); n.stop(t + 0.2);
     },
 
-    // HERO WINS with a RANGED weapon: a sharp gunshot (crack + boom + tail).
+    // HERO WINS with a RANGED weapon: a loud, punchy gunshot. Built around
+    // MID frequencies (≈300–1800 Hz) so it's clearly audible on phone/laptop
+    // speakers — not just sub-bass a small speaker can't reproduce.
     gunshot: function () {
-      const f = fileFor("heroShoot"); if (f) { playFile(f, false, 0.9); return; }
+      const f = fileFor("heroShoot"); if (f) { playFile(f, false, 1); return; }
       const c = getCtx();
       if (!c) return;
       const t = c.currentTime;
-      const out = c.createGain(); out.gain.value = 0.9; out.connect(c.destination);
-      // sharp high crack (the report)
-      const crack = c.createBufferSource(); crack.buffer = noiseBuffer(c, 0.05);
-      const hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1800;
+      const out = c.createGain(); out.gain.value = 1.0; out.connect(c.destination);
+
+      // 1) Bright broadband crack (the report).
+      const crack = c.createBufferSource(); crack.buffer = noiseBuffer(c, 0.12);
+      const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1400; bp.Q.value = 0.5;
       const cg = c.createGain(); cg.gain.value = 0.0001;
-      crack.connect(hp); hp.connect(cg); cg.connect(out);
-      cg.gain.exponentialRampToValueAtTime(1.0, t + 0.002);
-      cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
-      crack.start(t); crack.stop(t + 0.08);
-      // low boom (the punch)
+      crack.connect(bp); bp.connect(cg); cg.connect(out);
+      cg.gain.exponentialRampToValueAtTime(1.0, t + 0.003);
+      cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      crack.start(t); crack.stop(t + 0.16);
+
+      // 2) Mid "bang" tone — the part small speakers actually push air with.
+      const mid = c.createOscillator(); mid.type = "square";
+      mid.frequency.setValueAtTime(440, t);
+      mid.frequency.exponentialRampToValueAtTime(130, t + 0.13);
+      const mg = c.createGain(); mg.gain.value = 0.0001;
+      const mlp = c.createBiquadFilter(); mlp.type = "lowpass"; mlp.frequency.value = 2200;
+      mid.connect(mg); mg.connect(mlp); mlp.connect(out);
+      mg.gain.exponentialRampToValueAtTime(0.6, t + 0.005);
+      mg.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      mid.start(t); mid.stop(t + 0.22);
+
+      // 3) Low boom (felt on bigger speakers, harmless on small ones).
       const o = c.createOscillator(); o.type = "sine";
-      o.frequency.setValueAtTime(150, t);
-      o.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+      o.frequency.setValueAtTime(170, t);
+      o.frequency.exponentialRampToValueAtTime(48, t + 0.18);
       const g = c.createGain(); g.gain.value = 0.0001;
       o.connect(g); g.connect(out);
-      g.gain.exponentialRampToValueAtTime(0.9, t + 0.005);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
-      o.start(t); o.stop(t + 0.3);
-      // noise tail (the echo across the dark)
-      const n = c.createBufferSource(); n.buffer = noiseBuffer(c, 0.35);
-      const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 900; bp.Q.value = 0.6;
+      g.gain.exponentialRampToValueAtTime(0.9, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      o.start(t); o.stop(t + 0.32);
+
+      // 4) Echo tail across the dark.
+      const n = c.createBufferSource(); n.buffer = noiseBuffer(c, 0.4);
+      const bp2 = c.createBiquadFilter(); bp2.type = "bandpass"; bp2.frequency.value = 850; bp2.Q.value = 0.5;
       const ng = c.createGain(); ng.gain.value = 0.0001;
-      n.connect(bp); bp.connect(ng); ng.connect(out);
-      ng.gain.exponentialRampToValueAtTime(0.4, t + 0.02);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.33);
-      n.start(t); n.stop(t + 0.35);
+      n.connect(bp2); bp2.connect(ng); ng.connect(out);
+      ng.gain.exponentialRampToValueAtTime(0.35, t + 0.03);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+      n.start(t + 0.03); n.stop(t + 0.45);
     },
 
     // ZOMBIE WINS a fight: the zombie clip (quieter), then onDone() once it ends.

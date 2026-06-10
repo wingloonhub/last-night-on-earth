@@ -102,5 +102,20 @@
   <script src="js/admin.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/app.js"></script>
+
+  <!-- Local preview auto-login: loads js/dev-login.js ONLY on localhost.
+       That file is git-ignored, so it never exists on the live site and this
+       request is never even made there. -->
+  <script>
+    (function () {
+      var h = location.hostname;
+      if (h === "localhost" || h === "127.0.0.1" || h === "") {
+        var s = document.createElement("script");
+        s.src = "js/dev-login.js";
+        s.onerror = function () { /* no dev-login file present — that's fine */ };
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
 </body>
 </html>

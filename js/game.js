@@ -30,8 +30,7 @@
   const HERO_ACTIONS = [
     { title: "Move or Search", help: "Roll one die and move that many spaces. If you are INSIDE a building, you may Search instead of moving — draw a Hero card to find weapons or items." },
     { title: "Exchange items", help: "Give or take weapons and items with another Hero standing in the SAME space. This is free and does not use your move." },
-    { title: "Shoot a ranged weapon", help: "If you are holding a Gun, you can shoot a Zombie you can see in a straight line (not through walls). Roll the dice to try to hit." },
-    { title: "Fight a Zombie", help: "If a Zombie is in your space, you fight it. Both sides roll dice and compare the highest. Higher number wins — the loser takes a wound." }
+    { title: "Fight a Zombie", fight: true, help: "Attack a Zombie — in your space with a hand weapon, or at range with a gun. Both sides roll dice and compare the highest. Higher number wins; the loser takes a wound. Pick which weapon you used below so the right sound plays." }
   ];
 
   function narrate(key, opts) {
@@ -149,21 +148,29 @@
   }
   function weaponLabel(w) { return w ? w.name + (w.ranged ? " (ranged)" : " (hand)") : "bare hands"; }
 
-  // A Hero carries up to 4 things: max 2 weapons + max 2 items. Normalise older
-  // saves (which had a single `weapon`) into the new weapons/items arrays.
+  // A Hero carries up to 4 things total; at most 2 of them may be weapons (the
+  // rest are items). Normalise older saves (single `weapon`) and enforce caps.
+  const CARRY_MAX = 4, WEAPON_MAX = 2;
   function normalizeInventory(p) {
     if (!p) return;
     if (!p.weapons) p.weapons = p.weapon ? [p.weapon] : [];
-    if (!p.items) p.items = [];
     if (p.weapon) delete p.weapon;
+    p.weapons = p.weapons.filter(Boolean).slice(0, WEAPON_MAX);
+    if (!p.items) p.items = [];
+    const room = Math.max(0, CARRY_MAX - p.weapons.length);
+    if (p.items.length > room) p.items = p.items.slice(0, room);
   }
   function carriedWeapons(p) { return (p && p.weapons || []).filter(Boolean); }
-  // Options for a "fighting with" picker: bare hands + the Hero's carried weapons
-  // (value is the index into carriedWeapons(p), or -1 for bare hands).
+  function carriedCount(p) { return carriedWeapons(p).length + ((p && p.items) || []).length; }
+  // Options for a "fighting with" picker: bare hands + the Hero's carried weapons.
+  // Defaults to the Hero's FIRST weapon (so a ranged weapon fires its gunshot
+  // on a win even if the player doesn't touch the picker).
   function fightWeaponOptions(p) {
-    let s = '<option value="-1">bare hands</option>';
-    carriedWeapons(p).forEach(function (w, i) {
-      s += '<option value="' + i + '">' + esc(weaponLabel(w)) + "</option>";
+    const ws = carriedWeapons(p);
+    const def = ws.length ? 0 : -1;
+    let s = '<option value="-1"' + (def === -1 ? " selected" : "") + ">bare hands</option>";
+    ws.forEach(function (w, i) {
+      s += '<option value="' + i + '"' + (def === i ? " selected" : "") + ">" + esc(weaponLabel(w)) + "</option>";
     });
     return s;
   }
@@ -212,48 +219,52 @@
     return h;
   }
 
+  // A dropdown to ADD a weapon to a Hero (disabled when they're already full).
+  function weaponAddSelect(id, disabled) {
+    const ws = weaponList();
+    function opts(list) { return list.map(function (w) { return '<option value="' + esc(w.name) + '">' + esc(w.name) + "</option>"; }).join(""); }
+    return '<select id="' + esc(id) + '" class="wpn-select"' + (disabled ? " disabled" : "") +
+      '><option value="">+ add weapon…</option>' +
+      '<optgroup label="Hand weapons (whack)">' + opts(ws.filter(function (w) { return !w.ranged; })) + "</optgroup>" +
+      '<optgroup label="Ranged weapons (gunshot)">' + opts(ws.filter(function (w) { return w.ranged; })) + "</optgroup></select>";
+  }
+
   function renderRoster() {
     const el = document.getElementById("g-roster");
     if (!el) return;
     G.players.forEach(normalizeInventory);
     el.innerHTML = heroItemDatalist() + G.players.map(function (p, i) {
-      const w = p.weapons;
-      let h = '<div class="player-status' + (p.dead ? " dead" : "") + '">';
+      const ws = carriedWeapons(p);
+      const items = p.items || [];
+      const total = ws.length + items.length;
+      const weaponsFull = ws.length >= WEAPON_MAX;
+      const carryFull = total >= CARRY_MAX;
+      let h = '<div class="hero-inv' + (p.dead ? " dead" : "") + '">';
+      h += '<div class="hero-inv-top">';
       h += '<span class="ps-name">' + (p.dead ? "☠ " : "🧍 ") + esc(p.hero) + ' <span class="hint">(' + esc(p.name) + ")</span></span>";
-      h += '<button class="btn ' + (p.dead ? "btn-green" : "btn-ghost") + '" data-i="' + i + '" style="margin-left:auto">' +
-        (p.dead ? "Bring back" : "Mark dead ☠") + "</button></div>";
-      // Inventory row: up to 2 weapons + up to 2 items.
-      h += '<div class="inv-row" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 10px 26px">';
-      h += '<span class="hint">🗡 Weapons (max 2):</span>';
-      h += weaponSelect("ros-wpn-" + i + "-0", w[0] ? w[0].name : "");
-      h += weaponSelect("ros-wpn-" + i + "-1", w[1] ? w[1].name : "");
-      h += '<span class="hint">🎒 Items (max 2):</span>';
-      h += '<input type="text" id="ros-itm-' + i + '-0" list="hero-items" class="inv-item" value="' + esc(p.items[0] || "") + '" placeholder="Item…" style="flex:0 0 130px">';
-      h += '<input type="text" id="ros-itm-' + i + '-1" list="hero-items" class="inv-item" value="' + esc(p.items[1] || "") + '" placeholder="Item…" style="flex:0 0 130px">';
+      h += '<span class="hint inv-count">Carrying ' + total + "/" + CARRY_MAX + " · weapons " + ws.length + "/" + WEAPON_MAX + "</span>";
+      h += '<button class="btn ' + (p.dead ? "btn-green" : "btn-ghost") + '" data-dead="' + i + '">' + (p.dead ? "Bring back" : "Mark dead ☠") + "</button>";
       h += "</div>";
+      // Weapons (max 2 of the 4).
+      h += '<div class="inv-line"><span class="inv-tag">🗡 Weapons</span>';
+      ws.forEach(function (w, wi) {
+        h += '<span class="chip chip-wpn">' + esc(w.name) + '<span class="chip-kind">' + (w.ranged ? "gun" : "hand") +
+          '</span><a href="#" class="chip-x" data-rmw="' + i + ":" + wi + '">✕</a></span>';
+      });
+      h += weaponAddSelect("rw-" + i, weaponsFull || carryFull);
+      h += "</div>";
+      // Items (fill the rest of the 4).
+      h += '<div class="inv-line"><span class="inv-tag">🎒 Items</span>';
+      items.forEach(function (it, ii) {
+        h += '<span class="chip">' + esc(it) + '<a href="#" class="chip-x" data-rmi="' + i + ":" + ii + '">✕</a></span>';
+      });
+      h += '<input type="text" id="ai-' + i + '" list="hero-items" class="inv-item" placeholder="type an item…"' + (carryFull ? " disabled" : "") + ">";
+      h += '<button class="btn btn-sm" data-addi="' + i + '"' + (carryFull ? " disabled" : "") + ">+ Add</button>";
+      if (carryFull) h += '<span class="hint">— carrying the max of ' + CARRY_MAX + " —</span>";
+      h += "</div></div>";
       return h;
     }).join("");
-    el.querySelectorAll("button[data-i]").forEach(function (b) {
-      b.onclick = function () { const i = +b.dataset.i; G.players[i].dead = !G.players[i].dead; renderRoster(); };
-    });
-    G.players.forEach(function (p, i) {
-      function readInv() {
-        const w0 = document.getElementById("ros-wpn-" + i + "-0");
-        const w1 = document.getElementById("ros-wpn-" + i + "-1");
-        G.players[i].weapons = [w0 && findWeapon(w0.value), w1 && findWeapon(w1.value)].filter(Boolean);
-        const t0 = document.getElementById("ros-itm-" + i + "-0");
-        const t1 = document.getElementById("ros-itm-" + i + "-1");
-        G.players[i].items = [t0 && t0.value.trim(), t1 && t1.value.trim()].filter(Boolean);
-      }
-      ["ros-wpn-" + i + "-0", "ros-wpn-" + i + "-1"].forEach(function (id) {
-        const el2 = document.getElementById(id);
-        if (el2) el2.onchange = function () { readInv(); autoSave(); };
-      });
-      ["ros-itm-" + i + "-0", "ros-itm-" + i + "-1"].forEach(function (id) {
-        const el2 = document.getElementById(id);
-        if (el2) el2.onchange = function () { readInv(); autoSave(); };
-      });
-    });
+    wireRosterInventory(el);
     autoSave();
     const sel = document.getElementById("g-newhero");
     if (sel) {
@@ -264,6 +275,45 @@
         return '<option value="' + esc(hh.name) + '"' + (dis ? " disabled" : "") + ">" + esc(hh.name) + (dis ? " — taken" : "") + "</option>";
       }).join("");
     }
+  }
+
+  // Wire the chip inventory: mark-dead, add/remove weapons, add/remove items.
+  function wireRosterInventory(el) {
+    el.querySelectorAll("[data-dead]").forEach(function (b) {
+      b.onclick = function () { const i = +b.dataset.dead; G.players[i].dead = !G.players[i].dead; renderRoster(); };
+    });
+    el.querySelectorAll("[data-rmw]").forEach(function (a) {
+      a.onclick = function (e) { e.preventDefault(); const pr = a.dataset.rmw.split(":"); G.players[+pr[0]].weapons.splice(+pr[1], 1); renderRoster(); };
+    });
+    el.querySelectorAll("[data-rmi]").forEach(function (a) {
+      a.onclick = function (e) { e.preventDefault(); const pr = a.dataset.rmi.split(":"); G.players[+pr[0]].items.splice(+pr[1], 1); renderRoster(); };
+    });
+    el.querySelectorAll("select[id^='rw-']").forEach(function (s) {
+      s.onchange = function () {
+        const i = +s.id.slice(3), p = G.players[i], w = findWeapon(s.value);
+        if (w && carriedWeapons(p).length < WEAPON_MAX && carriedCount(p) < CARRY_MAX) {
+          p.weapons = (p.weapons || []).concat([w]);
+        }
+        renderRoster();
+      };
+    });
+    el.querySelectorAll("[data-addi]").forEach(function (b) {
+      b.onclick = function () {
+        const i = +b.dataset.addi, p = G.players[i];
+        const inp = document.getElementById("ai-" + i);
+        const v = (inp && inp.value || "").trim();
+        if (v && carriedCount(p) < CARRY_MAX) { p.items = (p.items || []).concat([v]); }
+        renderRoster();
+      };
+    });
+    el.querySelectorAll(".inv-item").forEach(function (inp) {
+      inp.onkeydown = function (e) {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const i = +inp.id.slice(3), b = el.querySelector('[data-addi="' + i + '"]');
+        if (b) b.click();
+      };
+    });
   }
 
   function wireRoster() {
@@ -448,8 +498,8 @@
       h += '<div class="step-no">' + (i + 1) + "</div>";
       h += '<div class="step-body"><h4>' + esc(a.title) + "</h4><p>" + esc(a.help) + "</p>";
       if (stateCls === "active") {
-        // The Fight step needs the Zombie (Bot) to roll back.
-        if (i === 3) {
+        // The Fight step needs the Zombie to roll back.
+        if (a.fight) {
           h += '<div class="mt"><span class="hint">A fight means BOTH sides roll. Roll the Zombie’s dice, then compare the highest to the Hero’s highest die (the Hero loses ties unless a card says otherwise):</span>';
           h += '<div class="toolbar mt"><label class="hint">Zombie dice: <select id="hf-ndice">';
           for (let n = 1; n <= 6; n++) h += '<option value="' + n + '"' + (n === 1 ? " selected" : "") + ">" + n + "</option>";
