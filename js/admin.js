@@ -92,6 +92,21 @@
     document.getElementById("ad-body").innerHTML = h;
   }
 
+  function heroGroupHtml(def) {
+    const cats = {};
+    def.forEach(function (c) { (cats[c.category] = cats[c.category] || []).push(c); });
+    let h = "";
+    Object.keys(cats).forEach(function (cat) {
+      h += "<h3>" + esc(cat) + "</h3>";
+      cats[cat].forEach(function (c) {
+        h += '<div class="deck-card"><div class="dc-top"><span class="dc-name">' + esc(c.name) + "</span>" +
+          '<span class="dc-copies">×' + (c.copies || 1) + "</span></div>";
+        h += '<div class="dc-text">' + esc(c.text) + "</div></div>";
+      });
+    });
+    return h;
+  }
+
   function renderHeroDeck() {
     const def = LNOE.heroDecks[setKey] || [];
     const total = def.reduce(function (s, c) { return s + (c.copies || 1); }, 0);
@@ -99,20 +114,21 @@
     if (!def.length) {
       h += emptyNote(setKey, "Hero");
     } else {
-      // group by category
-      const cats = {};
-      def.forEach(function (c) { (cats[c.category] = cats[c.category] || []).push(c); });
       h += '<p class="section-help">' + def.length + " card type(s) · " + total + " cards total.</p>";
-      Object.keys(cats).forEach(function (cat) {
-        h += "<h3>" + esc(cat) + "</h3>";
-        cats[cat].forEach(function (c) {
-          h += '<div class="deck-card"><div class="dc-top"><span class="dc-name">' + esc(c.name) + "</span>" +
-            '<span class="dc-copies">×' + (c.copies || 1) + "</span></div>";
-          h += '<div class="dc-text">' + esc(c.text) + "</div></div>";
-        });
-      });
+      h += heroGroupHtml(def);
     }
     h += "</div>";
+
+    // Advanced add-on Hero deck (base game only).
+    const adv = (LNOE.heroDecksAdvanced && LNOE.heroDecksAdvanced[setKey]) || null;
+    if (adv && adv.length) {
+      const advTotal = adv.reduce(function (s, c) { return s + (c.copies || 1); }, 0);
+      h += '<div class="card"><h2>Advanced Hero Deck <span class="pill">optional add-on</span></h2>';
+      h += '<p class="section-help">Turn this on in Setup to mix these into the base Hero deck. ' +
+        adv.length + " card type(s) · " + advTotal + " cards total.</p>";
+      h += heroGroupHtml(adv);
+      h += "</div>";
+    }
     document.getElementById("ad-body").innerHTML = h;
   }
 

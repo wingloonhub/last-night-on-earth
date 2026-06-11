@@ -46,23 +46,11 @@
 
     let html = "";
 
-    // ---- Saved games (auto-saved) — resume or delete ----
-    const saves = (LNOE.Store.listGames && LNOE.Store.listGames()) || [];
-    if (saves.length) {
+    // Returning with a saved game? Point to the Save / Load tab to resume it.
+    if (LNOE.Store.listGames && LNOE.Store.listGames().length) {
       html += '<div class="card" style="border-color:var(--blood-bright)">';
-      html += '<span class="step-badge">Saved games</span>';
-      html += "<h2>Resume a game</h2>";
-      html += '<p class="section-help">Your game saves automatically as you play. If you closed the app, pick up exactly where you left off — or delete a save you don’t need.</p>';
-      html += '<div id="su-saves">';
-      saves.forEach(function (s) {
-        const where = "Round " + (s.round || 1) + " · " + (s.phase === "zombie" ? "Zombie turn" : "Hero turn");
-        html += '<div class="player-status">' +
-          '<span class="ps-name">🎮 ' + esc(s.label || "Saved game") +
-          ' <span class="hint">— ' + esc(where) + ", saved " + esc(savedWhen(s.savedAt)) + "</span></span>" +
-          '<button class="btn btn-green" data-resume="' + esc(s.id) + '">▶ Resume</button>' +
-          '<button class="btn btn-ghost" data-del="' + esc(s.id) + '">🗑 Delete</button></div>';
-      });
-      html += "</div></div>";
+      html += '<p class="section-help" style="margin:0">💾 You have saved game(s). Open the <strong>Save / Load</strong> tab above to pick up where you left off.</p>';
+      html += "</div>";
     }
 
     // ---- Step A: base set + expansions ----
@@ -231,18 +219,6 @@
   }
 
   function wire() {
-    // Saved-game Resume / Delete buttons.
-    panel().querySelectorAll("[data-resume]").forEach(function (b) {
-      b.onclick = function () { if (LNOE.Game && LNOE.Game.resume) LNOE.Game.resume(b.dataset.resume); };
-    });
-    panel().querySelectorAll("[data-del]").forEach(function (b) {
-      b.onclick = function () {
-        if (confirm("Delete this saved game? This can’t be undone.")) {
-          LNOE.Store.deleteGame(b.dataset.del);
-          render();
-        }
-      };
-    });
     document.getElementById("su-set").onchange = function () {
       state.baseSet = this.value;
       state.scenarioIndex = 0;

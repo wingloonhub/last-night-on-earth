@@ -147,10 +147,13 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 
 .turn-banner {
   background: linear-gradient(90deg, #2a0f0f, #1c1f27); border: 1px solid var(--blood-bright);
-  border-radius: var(--radius); padding: 16px 20px; margin-bottom: 16px;
+  border-radius: var(--radius); padding: 14px 20px; margin-bottom: 16px;
+  /* Stick just under the (sticky) topbar so you always see whose turn it is. */
+  position: sticky; top: var(--topbar-h, 56px); z-index: 15; box-shadow: 0 8px 18px rgba(0,0,0,.45);
 }
-.turn-banner .who { font-size: 24px; font-weight: 700; }
+.turn-banner .who { font-size: 22px; font-weight: 700; }
 .turn-banner .phase { color: var(--rust); font-family: "Special Elite", monospace; }
+.turn-banner .banner-gear { margin-top: 6px; font-size: 13px; color: var(--ink); opacity: .85; }
 
 .action-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 620px) { .action-list { grid-template-columns: 1fr; } }
@@ -268,3 +271,10 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .inv-item:disabled { opacity: .4; }
 .wpn-select { padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); max-width: 220px; }
 .btn-sm { padding: 5px 9px; font-size: 13px; }
+.inv-details { margin: 8px 0 2px 0; }
+.inv-details > summary { cursor: pointer; color: var(--rust); font-size: 13px; user-select: none; list-style-position: inside; }
+.inv-details[open] > summary { margin-bottom: 6px; }
+.card-detail { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+.card-detail strong { color: var(--ink); }
+.card-detail ul { margin: 6px 0 0 0; padding-left: 18px; }
+.card-detail li { font-size: 13px; color: var(--ink); opacity: .9; margin: 2px 0; }

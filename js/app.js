@@ -10,15 +10,26 @@
       t.classList.toggle("active", t.dataset.tab === name);
     });
     $("tab-start").hidden = name !== "start";
+    $("tab-saves").hidden = name !== "saves";
     $("tab-admin").hidden = name !== "admin";
     if (name === "admin") LNOE.Admin.render();
+    if (name === "saves") LNOE.Game.renderSaves();
     if (name === "start") LNOE.Setup.ensureRendered();
+  }
+
+  // Measure the sticky topbar so the sticky turn-banner can sit right below it
+  // (the topbar can wrap to two lines on a phone, changing its height).
+  function setTopbarHeight() {
+    const tb = document.querySelector(".topbar");
+    if (tb) document.documentElement.style.setProperty("--topbar-h", tb.offsetHeight + "px");
   }
 
   function bootApp(user) {
     $("auth-screen").hidden = true;
     $("app").hidden = false;
     $("user-email").textContent = user.email || "Player";
+    setTopbarHeight();
+    window.addEventListener("resize", setTopbarHeight);
 
     document.querySelectorAll(".tab").forEach(function (t) {
       t.onclick = function () { switchTab(t.dataset.tab); };

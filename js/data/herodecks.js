@@ -95,6 +95,38 @@
       quote: "I ain't runnin'…zombies or no zombies." }
   ];
 
+  // Advanced add-on Hero deck for the BASE game (optional). Transcribed from
+  // photos — 20 cards, 11 unique. Mixed into the base Hero deck when the player
+  // turns on the Advanced deck in Setup.
+  const baseHeroAdvanced = [
+    { name: "Signal Flare", category: "Ranged Weapon", copies: 1,
+      text: "Item – Ranged Weapon – Flare. RANGE: 4. You may target one Zombie within Range. Roll a D6. The Zombie is Killed on the roll of 2+. Discard when fired. Signal Flare does not count against the Hero's weapon limit." },
+    { name: "Lighter", category: "Item", copies: 2,
+      text: "Item – Fire. The Hero may ignore the effects of Lights Out.",
+      quote: "I knew this would come in handy." },
+    { name: "Dynamite", category: "Item", copies: 4,
+      text: "Item – Explosive. RANGE: 2. You must have a (Fire) item to use Dynamite. Discard to throw at a space within Range. Roll a D6 for each model in that space. Zombies are Killed on the roll of 2+. Any Hero in that space is Killed on the roll of 5+." },
+    { name: "Gasoline", category: "Item", copies: 2,
+      text: "Item – Explosive. At any time during your move, you may discard to douse your space or any adjacent space with Gasoline (place a Gas Marker there)." },
+    { name: "Old Betsy", category: "Item", copies: 1,
+      text: "Item – Animal. At any time, discard to place Old Betsy in any space on the board. No Zombie may move from that space this turn. In future turns, Zombies trying to move from that space must first roll a 5 or 6 to escape. When a Zombie escapes, remove Old Betsy from the board." },
+    { name: "Fire Extinguisher", category: "Item", copies: 2,
+      text: "Item. Discard to immediately cancel a fight involving the Hero. OR Discard at any time (except during a fight) to move every Zombie adjacent to and in the same space as the Hero, one space each in any direction (Hero's choice).",
+      quote: "Back off!!" },
+    { name: "Just What I Needed", category: "Event", copies: 4,
+      text: "Event – Play Immediately. Take any card from the Hero Cards discard pile. If there are no cards in the discard pile, you may draw a new Hero Card. OR Take any Scenario Search Item from the draw deck, then shuffle the deck." },
+    { name: "Heroic Resolve", category: "Event", copies: 1,
+      text: "Event – Heroic. Play on any Hero that has 2 or more Zombies in their space. That Hero now rolls an extra Fight Dice and wins on ties. Discard this card if the Hero Searches. Remains in Play. Limit one Heroic card per Hero." },
+    { name: "Hero's Rage", category: "Event", copies: 1,
+      text: "Event – Heroic. Play on any Hero that has 2 or more Zombies in their space. Until the start of the next Hero Turn, that Hero rolls an extra Fight Dice and Kills any Zombie beaten in a fight, even if no doubles were rolled. Limit one Heroic card per Hero." },
+    { name: "Blocked Windows", category: "Event", copies: 1,
+      text: "Event. Play to prevent all Zombies from moving through walls this turn (including doors).",
+      quote: "That won't hold them for long." },
+    { name: "Escape Through the Window", category: "Event", copies: 1,
+      text: "Event. Until the end of the Hero Turn, all Heroes may move through walls as long as they do not end their move in a building space. In addition, any Locked Door card played this turn is cancelled." }
+  ];
+  LNOE.heroDecksAdvanced = { base: baseHeroAdvanced };
+
   const empty = [];
 
   LNOE.heroDecks = {

@@ -120,15 +120,30 @@
   }
 
   /* ----------------- Hero weapons & event-card helpers -------------- */
-  // Weapons the Heroes can carry, read from the loaded Hero deck.
+  // The Hero deck cards in play: base set + the Advanced add-on when it's on.
+  function heroDeckCards() {
+    let cards = ((LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || []).slice();
+    if (G && G.advanced && LNOE.heroDecksAdvanced && LNOE.heroDecksAdvanced[G.baseSet]) {
+      cards = cards.concat(LNOE.heroDecksAdvanced[G.baseSet]);
+    }
+    return cards;
+  }
+  function dedupeNames(arr) {
+    const seen = {}, out = [];
+    arr.forEach(function (n) { if (!seen[n]) { seen[n] = 1; out.push(n); } });
+    return out;
+  }
+  // Weapons the Heroes can carry, read from the Hero deck(s) in play.
   function weaponList() {
-    const deck = (LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || [];
-    return deck.filter(function (c) {
-      return c.category === "Hand Weapon" || c.category === "Ranged Weapon";
-    }).map(function (c) {
-      const ranged = c.category === "Ranged Weapon";
-      return { name: c.name, ranged: ranged, gun: ranged && /\bGun\b/.test(c.text || "") };
+    const seen = {}, out = [];
+    heroDeckCards().forEach(function (c) {
+      if ((c.category === "Hand Weapon" || c.category === "Ranged Weapon") && !seen[c.name]) {
+        seen[c.name] = 1;
+        const ranged = c.category === "Ranged Weapon";
+        out.push({ name: c.name, ranged: ranged, gun: ranged && /\bGun\b/.test(c.text || "") });
+      }
     });
+    return out;
   }
   function findWeapon(name) {
     if (!name) return null;
@@ -162,6 +177,20 @@
   }
   function carriedWeapons(p) { return (p && p.weapons || []).filter(Boolean); }
   function carriedCount(p) { return carriedWeapons(p).length + ((p && p.items) || []).length; }
+  // Compact gear summary shown in the sticky turn banner.
+  function bannerGearText(p) {
+    const ws = carriedWeapons(p), it = (p && p.items) || [];
+    const g = [];
+    if (ws.length) g.push("🗡 " + ws.map(function (w) { return w.name; }).join(", "));
+    if (it.length) g.push("🎒 " + it.join(", "));
+    return g.length ? g.join("    ·    ") : "No weapons or items yet — add them in the Heroes list below.";
+  }
+  // Refresh just the banner's gear line when the current Hero's inventory changes.
+  function updateBannerGear() {
+    if (!G || G.phase !== "hero") return;
+    const el = document.querySelector(".banner-gear");
+    if (el) el.textContent = bannerGearText(G.players[G.playerIndex]);
+  }
   // Options for a "fighting with" picker: bare hands + the Hero's carried weapons.
   // Defaults to the Hero's FIRST weapon (so a ranged weapon fires its gunshot
   // on a win even if the player doesn't touch the picker).
@@ -182,10 +211,9 @@
     const idx = sel ? +sel.value : -1;
     return idx >= 0 ? (carriedWeapons(p)[idx] || null) : null;
   }
-  // Items a Hero can carry, read from the Hero deck (for the item autocomplete).
+  // Items a Hero can carry, read from the Hero deck(s) in play (for autocomplete).
   function heroItemNames() {
-    const deck = (LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || [];
-    return deck.filter(function (c) { return c.category === "Item"; }).map(function (c) { return c.name; });
+    return dedupeNames(heroDeckCards().filter(function (c) { return c.category === "Item"; }).map(function (c) { return c.name; }));
   }
   function heroItemDatalist() {
     return '<datalist id="hero-items">' + heroItemNames().map(function (n) {
@@ -195,14 +223,49 @@
 
   // Event-type Hero cards (Event + Townsfolk) for the play-a-card autocomplete.
   function heroEventNames() {
-    const deck = (LNOE.heroDecks && LNOE.heroDecks[G.baseSet]) || [];
-    return deck.filter(function (c) { return c.category === "Event" || c.category === "Townsfolk"; })
-      .map(function (c) { return c.name; });
+    return dedupeNames(heroDeckCards().filter(function (c) { return c.category === "Event" || c.category === "Townsfolk"; })
+      .map(function (c) { return c.name; }));
+  }
+  function heroEventOptions() {
+    return heroEventNames().map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join("");
   }
   function heroEventDatalist() {
-    return '<datalist id="hero-events">' + heroEventNames().map(function (n) {
-      return '<option value="' + esc(n) + '"></option>';
-    }).join("") + "</datalist>";
+    return '<datalist id="hero-events">' + heroEventOptions() + "</datalist>";
+  }
+
+  // Find a Hero card object by name across the deck(s) in play.
+  function findHeroCard(name) {
+    if (!name) return null;
+    return heroDeckCards().find(function (c) { return c.name === name; }) || null;
+  }
+  // Turn a weapon/item card's rules text into simple point-form "what it does".
+  function cardPoints(card) {
+    let t = (card.text || "").replace(/\s+/g, " ").trim();
+    t = t.replace(/^Item\b[^.]*\.\s*/i, "");             // drop the "Item[ – type]." descriptor
+    const pts = [];
+    if (card.category === "Hand Weapon") pts.push("Hand weapon — used when you fight a Zombie in your space.");
+    else if (card.category === "Ranged Weapon") pts.push("Ranged weapon — shoot a Zombie from a distance.");
+    const rangeM = t.match(/^RANGE:\s*(\d+)\.?\s*/i);
+    if (rangeM) { pts.push("Range " + rangeM[1] + " — target a Zombie/space up to " + rangeM[1] + " away."); t = t.slice(rangeM[0].length); }
+    function pushSentences(str) {
+      str.split(/\.\s+/).forEach(function (sent) {
+        sent = sent.replace(/\.$/, "").trim();
+        if (!sent) return;
+        if (/^OR\s+/i.test(sent)) pts.push("Or instead: " + sent.replace(/^OR\s+/i, ""));
+        else pts.push(sent);
+      });
+    }
+    // Anything before "COMBAT BONUS:" is a normal/passive effect; what follows
+    // is the in-fight bonus.
+    const cbIdx = t.search(/COMBAT BONUS:\s*/i);
+    if (cbIdx > -1) {
+      pushSentences(t.slice(0, cbIdx));
+      pts.push("In a fight, it gives you this bonus:");
+      pushSentences(t.replace(/^[\s\S]*?COMBAT BONUS:\s*/i, ""));
+    } else {
+      pushSentences(t);
+    }
+    return pts;
   }
 
   // The "Heroes" roster card: mark deaths + add players mid-game. Shared by
@@ -261,10 +324,25 @@
       h += '<input type="text" id="ai-' + i + '" list="hero-items" class="inv-item" placeholder="type an item…"' + (carryFull ? " disabled" : "") + ">";
       h += '<button class="btn btn-sm" data-addi="' + i + '"' + (carryFull ? " disabled" : "") + ">+ Add</button>";
       if (carryFull) h += '<span class="hint">— carrying the max of ' + CARRY_MAX + " —</span>";
-      h += "</div></div>";
+      h += "</div>";
+      // Point-form "what your cards do" for the carried weapons + items.
+      const detailCards = ws.map(function (w) { return findHeroCard(w.name); })
+        .concat(items.map(function (it) { return findHeroCard(it); })).filter(Boolean);
+      if (detailCards.length) {
+        h += '<details class="inv-details"><summary>📖 What ' + esc(p.hero) + "’s cards do</summary>";
+        detailCards.forEach(function (c) {
+          const icon = (c.category === "Hand Weapon" || c.category === "Ranged Weapon") ? "🗡" : "🎒";
+          h += '<div class="card-detail"><strong>' + icon + " " + esc(c.name) + "</strong><ul>";
+          cardPoints(c).forEach(function (pt) { h += "<li>" + esc(pt) + "</li>"; });
+          h += "</ul></div>";
+        });
+        h += "</details>";
+      }
+      h += "</div>";
       return h;
     }).join("");
     wireRosterInventory(el);
+    updateBannerGear();   // keep the sticky banner's gear line in sync
     autoSave();
     const sel = document.getElementById("g-newhero");
     if (sel) {
@@ -487,6 +565,8 @@
     h += '<div class="turn-banner">';
     h += '<div class="phase">Hero Turn · ' + aliveIndices().length + " Hero(es) still alive</div>";
     h += '<div class="who">' + esc(p.hero) + ' <span style="color:var(--muted);font-size:16px">— played by ' + esc(p.name) + "</span></div>";
+    // Current hero's gear, so it stays visible while you scroll.
+    h += '<div class="banner-gear">' + esc(bannerGearText(p)) + "</div>";
     h += "</div>";
 
     h += '<div class="card"><h3>Your actions this turn — do them in order</h3>';
@@ -1117,8 +1197,9 @@
 
     // 3) Hero counter.
     h += '<div class="rv-panel"><div class="rv-panel-h">🧍 Hero’s counter</div>';
-    h += '<p class="hint" style="margin:0 0 6px">Play a Hero card in response (or leave blank).</p>';
-    h += '<input id="rv-counter" placeholder="e.g. Grit & Determination, Faith, Adrenaline, re-roll">';
+    h += '<p class="hint" style="margin:0 0 6px">Play a Hero Event card in response (it auto-completes), or leave blank.</p>';
+    h += '<input id="rv-counter" list="rv-events" placeholder="Start typing… e.g. Faith, Get Back You Devils, Just a Scratch">';
+    h += '<datalist id="rv-events">' + heroEventOptions() + "</datalist>";
     h += '<button class="btn btn-rust mt" id="rv-play">Hero plays this →</button></div>';
 
     // 4) Settle.
@@ -1368,10 +1449,71 @@
     if (G.phase === "zombie") renderZombie(); else renderHero();
   }
 
+  // Friendly "saved …" time label for the Save / Load tab.
+  function fmtSavedWhen(iso) {
+    if (!iso) return "just now";
+    try {
+      const d = new Date(iso), today = new Date();
+      const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return d.toDateString() === today.toDateString() ? "today " + time
+        : d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + time;
+    } catch (e) { return "earlier"; }
+  }
+  function savesListHtml(saves) {
+    if (!saves.length) return '<p class="empty-note">No saved games yet. Start a game — it saves automatically as you play.</p>';
+    return saves.map(function (s) {
+      const where = "Round " + (s.round || 1) + " · " + (s.phase === "zombie" ? "Zombie turn" : "Hero turn");
+      return '<div class="player-status"><span class="ps-name">🎮 ' + esc(s.label || "Saved game") +
+        ' <span class="hint">— ' + esc(where) + ", saved " + esc(fmtSavedWhen(s.savedAt)) + "</span></span>" +
+        '<button class="btn btn-green" data-resume="' + esc(s.id) + '">▶ Load</button>' +
+        '<button class="btn btn-ghost" data-del="' + esc(s.id) + '">🗑 Delete</button></div>';
+    }).join("");
+  }
+  // The "Save / Load" tab: current game status (with a manual Save), plus the
+  // list of saved games to Load or Delete.
+  function renderSavesTab() {
+    const el = document.getElementById("tab-saves");
+    if (!el) return;
+    const saves = (LNOE.Store.listGames && LNOE.Store.listGames()) || [];
+    let h = '<div class="card"><h2>💾 Save / Load games</h2>';
+    h += '<p class="section-help">Your game saves automatically as you play, so you can close the app and pick up later. Load a game to jump back in, or delete one you don’t need.</p>';
+    if (G) {
+      h += '<div class="player-status" style="border-color:var(--blood-bright)">';
+      h += '<span class="ps-name">🎮 In progress: ' + esc(G.scenario.name) +
+        ' <span class="hint">— Round ' + G.round + " · " + (G.phase === "zombie" ? "Zombie turn" : "Hero turn") + "</span></span>";
+      h += '<button class="btn btn-green" id="sv-save-now">💾 Save now</button></div>';
+    }
+    h += '<div id="sv-list" class="mt">' + savesListHtml(saves) + "</div>";
+    h += "</div>";
+    el.innerHTML = h;
+
+    const saveNow = document.getElementById("sv-save-now");
+    if (saveNow) saveNow.onclick = function () {
+      autoSave();
+      const me = this; me.textContent = "✓ Saved"; me.disabled = true;
+      renderSavesTab();
+    };
+    el.querySelectorAll("[data-resume]").forEach(function (b) {
+      b.onclick = function () {
+        if (G && !confirm("Load this saved game? Your current game is already saved, so you can come back to it.")) return;
+        const s = LNOE.Store.getGame(b.dataset.resume);
+        if (s) resumeGame(s.state);   // resumeGame switches to the Start tab and renders the game
+      };
+    });
+    el.querySelectorAll("[data-del]").forEach(function (b) {
+      b.onclick = function () {
+        if (!confirm("Delete this saved game? This can’t be undone.")) return;
+        LNOE.Store.deleteGame(b.dataset.del);
+        renderSavesTab();
+      };
+    });
+  }
+
   LNOE.Game = {
     init: function () {},
     start: start,
     isRunning: function () { return !!G; },
-    resume: function (id) { const s = LNOE.Store.getGame(id); if (s) resumeGame(s.state); }
+    resume: function (id) { const s = LNOE.Store.getGame(id); if (s) resumeGame(s.state); },
+    renderSaves: renderSavesTab
   };
 })();
