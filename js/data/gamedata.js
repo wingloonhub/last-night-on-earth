@@ -24,11 +24,19 @@
   // Scenarios that come in each base box.
   LNOE.scenarios = {
     base: [
-      { name: "Die, Zombies, Die!", objective: "Heroes work together to kill 15 Zombies before the night ends." },
-      { name: "Save the Townsfolk", objective: "Heroes must rescue a number of helpless Townsfolk and keep them alive." },
-      { name: "Burn 'Em Out!", objective: "Heroes find gas and a torch and burn down buildings to wipe out the Zombie spawning pits." },
-      { name: "Escape in the Truck", objective: "Heroes find the keys and gas, start the truck, and drive off the board to escape." },
-      { name: "Defend the Manor House", objective: "Heroes hold out inside the Manor House until dawn (the Sun Track ends)." }
+      { name: "Die, Zombies, Die!", turns: 15, heroDeathLimit: 2,
+        objTracker: { emoji: "☠", label: "Zombies killed", target: 15, win: "Heroes", autoKill: true },
+        objective: "Heroes work together to kill 15 Zombies before the night ends." },
+      { name: "Save the Townsfolk", turns: 16, heroDeathLimit: 2,
+        objTracker: { emoji: "👥", label: "Townsfolk saved", target: 4, win: "Heroes" },
+        objective: "Heroes must rescue 4 helpless Townsfolk and keep them alive." },
+      { name: "Burn 'Em Out!", turns: 18,
+        objTracker: { emoji: "🔥", label: "Spawning pits destroyed", target: 3, win: "Heroes" },
+        objective: "Heroes find gas and a torch and burn down buildings to wipe out the Zombie spawning pits." },
+      { name: "Escape in the Truck", turns: 15, objective: "Heroes find the keys and gas, start the truck, and drive off the board to escape." },
+      { name: "Defend the Manor House", turns: 17,
+        objTracker: { emoji: "🏚", label: "Zombies in the Manor", target: 9, win: "Zombies" },
+        objective: "Heroes hold out inside the Manor House until dawn (the Sun Track ends)." }
     ],
     timber_peak: [
       { name: "Blow up the Town!", objective: "Heroes gather explosives and blow the town sky-high before the night ends." },
@@ -79,10 +87,6 @@
   };
   LNOE.scenarioLocationCfg = function (name) { return LNOE.scenarioLocations[name] || null; };
 
-  // "Save the Townsfolk" — the named Townsfolk that can appear in the game.
-  LNOE.townsfolkCharacters = ["Principal Gomez", "Doc Brody", "Mr. Hyde", "Jeb", "Deputy Taylor", "Farmer Sty"];
-  LNOE.isTownsfolkScenario = function (name) { return name === "Save the Townsfolk"; };
-
   // Heroes available, grouped by set/expansion. ability = quick reminder text.
   // When an expansion is mixed in, its heroes are ADDED to the base pool.
   LNOE.heroes = {
@@ -126,7 +130,8 @@
   LNOE.buildings = {
     base: ["High School", "Gym", "Book Store", "Church", "Hospital", "Police Station",
       "Hardware Store", "Gas Station", "Farmhouse", "Graveyard", "Junkyard", "Corner Store",
-      "Manor House", "Town Center", "Main Street", "The Barn", "The Bank", "Morgue"],
+      "Town Center", "Main Street", "The Barn", "The Bank", "Morgue",
+      "Diner", "Airplane Hangar"],
     timber_peak: ["Gun Shop", "General Store", "The Plant", "Office Trailer", "Lumber Yard",
       "Sawmill", "Power Relay Station", "Diner", "Tavern", "Bowling Alley", "Sheriff's Office", "Mine"],
     blood_forest: ["Airfield Office", "Airfield Runway", "Ranger Station", "Forest Trail", "Cabins", "Campground"],

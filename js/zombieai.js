@@ -45,6 +45,14 @@
     return c;
   };
 
+  // The Bot may hold at most `max` cards. Excess (oldest first) is discarded —
+  // the discard reshuffles back into the deck, so the Zombie never runs out.
+  Bot.prototype.HAND_MAX = 4;
+  Bot.prototype.capHand = function (max) {
+    max = max || this.HAND_MAX;
+    while (this.hand.length > max) { this.discard.push(this.hand.shift()); }
+  };
+
   // Decide whether the Bot should play a freshly considered card.
   // phase: 'draw' | 'start' | 'movement' | 'fight' | 'end'
   Bot.prototype.advise = function (card, phase) {

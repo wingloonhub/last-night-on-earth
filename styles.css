@@ -45,6 +45,9 @@ button { font-family: inherit; cursor: pointer; }
 .btn-ghost { background: transparent; }
 .btn-rust { background: var(--rust); border-color: #d4791f; color: #1a1208; }
 .btn-green { background: var(--green); border-color: #4f9d4f; color: #fff; }
+.loc-line { align-items: center; flex-wrap: wrap; }
+.loc-seg { display: inline-flex; gap: 6px; }
+.loc-btn.loc-on { background: var(--green); border-color: #4f9d4f; color: #fff; }
 .btn-lg { font-size: 17px; padding: 14px 20px; }
 .btn-block { width: 100%; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -198,6 +201,9 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .card-draw .ctype { color: var(--muted); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
 .card-draw .ctext { margin: 12px 0; font-size: 15px; line-height: 1.5; }
 .card-draw .csimple { background: var(--panel2); border-radius: 8px; padding: 12px; font-size: 15px; }
+.card-draw .zc-steps { margin: 8px 0 0; padding-left: 20px; }
+.card-draw .zc-steps li { margin: 5px 0; line-height: 1.45; }
+.card-draw.reveal-done { opacity: .58; }
 .card-draw .cquote { color: var(--muted); font-style: italic; margin-top: 10px; font-family: "Special Elite", monospace; }
 
 .dice-area { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
@@ -289,3 +295,6 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .tf-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 7px; }
 .tf-who { min-width: 110px; }
 .tf-row select { padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.obj-big { font-size: 20px; color: var(--blood-bright); }
+.obj-kill, .obj-saved { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.obj-done { flex-basis: 100%; color: var(--green); font-weight: 700; background: rgba(63,125,63,.14); border: 1px solid var(--green); border-radius: 8px; padding: 6px 10px; }

@@ -30,7 +30,8 @@
   const HERO_ACTIONS = [
     { title: "Move or Search", help: "Roll one die and move that many spaces. If you are INSIDE a building, you may Search instead of moving — draw a Hero card to find weapons or items." },
     { title: "Exchange items", help: "Give or take weapons and items with another Hero standing in the SAME space. This is free and does not use your move." },
-    { title: "Fight a Zombie", fight: true, help: "Attack a Zombie — in your space with a hand weapon, or at range with a gun. Both sides roll dice and compare the highest. Higher number wins; the loser takes a wound. Pick which weapon you used below so the right sound plays." }
+    { title: "Shoot a ranged weapon", shoot: true, help: "If you’re holding a Gun and can see a Zombie in a straight line (not through walls), shoot it. Pick your gun, roll to hit, then mark the kill — you’ll hear the shot. The Zombie does NOT fight back." },
+    { title: "Fight a Zombie", fight: true, help: "Attack a Zombie in your space. Both sides roll dice and compare the highest. Higher number wins; the loser takes a wound. Pick which weapon you used below so the right sound plays." }
   ];
 
   function narrate(key, opts) {
@@ -50,6 +51,94 @@
   function cardThematic(card) {
     return LNOE.suspenseLine() + " " + LNOE.cardNarration(card.name);
   }
+  // Just the FIRST sentence of a narration — short enough to read quickly.
+  function shortSentence(text) {
+    const m = (text || "").match(/^[^.!?“”]*[.!?]/);
+    return (m ? m[0] : (text || "")).trim();
+  }
+  // Plain-English point-form "what to do" for a Zombie card the Bot played,
+  // with any die roll and target building already filled in (no buttons).
+  function zombieCardSteps(p) {
+    const n = (p.name || "").toLowerCase();
+    const r = p.roll || "?";
+    const sp = (p.roll === 1) ? "" : "s";
+    // Cards whose wording is "roll, then the player chooses" — spell it out.
+    if (n.indexOf("shamble") > -1) {
+      const who = p.hero ? (p.hero + (p.heroName ? " (" + p.heroName + ")" : "")) : "the nearest Hero";
+      const tail = p.heroLoc === "outdoor" ? " — they’re out in the open." : (p.hero ? " — everyone’s indoors, so this one’s picked at random." : "");
+      return ["🎲 The Zombie rolled a " + r + ".",
+        "🧍 Lurch toward: " + who + tail,
+        "Choose any one Zombie and move it up to " + r + " space" + sp + " toward " + (p.hero || "that Hero") + "."];
+    }
+    if (n.indexOf("relentless advance") > -1) {
+      return ["🎲 The Zombie rolled a " + r + ".",
+        "Up to " + r + " Zombie" + sp + " may each move 1 extra space now — you choose which.",
+        "Those Zombies can still move and fight normally this turn."];
+    }
+    if (n.indexOf("too many") > -1) {
+      return ["🎲 The Zombie rolled a " + r + ".",
+        "Add " + r + " more Zombie" + sp + " on top of the spawn above.",
+        "If the pool runs out, take them from anywhere on the board."];
+    }
+    if (n.indexOf("surprise attack") > -1) {
+      if (!p.hero) {
+        return ["No Hero is marked as inside a building, so Surprise Attack has no legal target.",
+          "Discard it with no effect. (If a Hero really is in a building, set them to “In a building” in the Heroes list, then re-reveal.)"];
+      }
+      const who = p.hero + (p.heroName ? " (" + p.heroName + ")" : "");
+      return ["🧍 Drop the Zombie on: " + who + " — they’re inside a building.",
+        "Take a Zombie from the pool and place it in the same space as " + p.hero + "."];
+    }
+    if (n.indexOf("cornered") > -1) {
+      return ["For the rest of this turn (until your next Zombie turn) every Zombie rolls 2 extra Fight Dice.",
+        "Heroes still win on ties.",
+        "✓ The Fight box (step 4) has already added the 2 extra dice for you."];
+    }
+    if (n.indexOf("taken the") > -1) {
+      const b = p.target ? (/^the\s/i.test(p.target) ? p.target : "the " + p.target) : "the rolled building";
+      return ["🏚 Target building: " + (p.target || "(roll a random building)") + ".",
+        "Place a Taken Over marker on " + b + ".",
+        "Fill every empty space in " + b + " with Zombies from the pool.",
+        "No Hero may enter or Search " + b + " while it’s Taken Over."];
+    }
+    if (n.indexOf("lights out") > -1) {
+      const b = p.target ? (/^the\s/i.test(p.target) ? p.target : "the " + p.target) : "the chosen building";
+      return ["🏚 Target building: " + (p.target || "(pick a building)") + ".",
+        "Place a Lights Out marker on " + b + ".",
+        "Any Hero who moves into a space in " + b + " immediately ends their move.",
+        "This stays in play."];
+    }
+    if (n.indexOf("heavy rain") > -1) {
+      return ["Every Hero who is OUTSIDE a building subtracts 1 from their Movement roll (to a minimum of 1).",
+        "Heroes inside a building are unaffected.",
+        "This stays in play for the rest of the game."];
+    }
+    if (n.indexOf("horror") > -1) {
+      return ["The Zombie draws 3 extra Zombie cards (done for you automatically).",
+        "Any of those it can play this turn appear below."];
+    }
+    if (n.indexOf("town overrun") > -1) {
+      return ["Discard the top 10 cards of the Hero deck (reveal and throw them away).",
+        "If that empties the Hero deck, the Heroes lose — use the button below."];
+    }
+    let s = p.simple || "";
+    if (p.roll) {
+      s = s.replace(/Roll a die[\s—–-]*it moves that many spaces/i, "It moves " + p.roll + " spaces")
+        .replace(/Roll a die[.;,]?\s*/i, "")
+        .replace(/\bthat many\b/gi, String(p.roll))
+        .replace(/\bD6\b/gi, String(p.roll));
+    }
+    if (p.target) {
+      const the = /^the\s/i.test(p.target) ? p.target : "the " + p.target; // avoid "the The Barn"
+      s = s.replace(/Pick a building\.\s*/i, "")
+        .replace(/\bthere\b/gi, "in " + the)
+        .replace(/\ba building\b/gi, the);
+    }
+    const pts = s.split(/\.\s+/).map(function (x) { return x.replace(/\.$/, "").trim(); }).filter(Boolean);
+    if (p.roll) pts.unshift("🎲 The Zombie already rolled a " + p.roll + " for you.");
+    if (p.target) pts.unshift("🏚 Target building: " + p.target + ".");
+    return pts;
+  }
 
   // Called whenever the Bot PLAYS a Zombie card. Builds suspense: a sharp
   // sting, a low groan, then the narrator speaks. Returns the thematic text.
@@ -63,22 +152,45 @@
     return line;
   }
 
+  // Trip!: the moment a Hero finishes a Move or Search, the Zombie may play it
+  // to force a re-roll. If it holds the card, play it and tell the player.
+  function botPlaysTrip(heroLabel) {
+    const t = G.bot.hand.find(function (c) { return /trip/i.test(c.name); });
+    if (!t) return;
+    G.bot.playFromHand(t.uid);
+    G.zturn.played.push(t.name);
+    announceBotCard(t);
+    let m = document.getElementById("trip-modal");
+    if (!m) { m = document.createElement("div"); m.id = "trip-modal"; m.className = "modal-overlay"; document.body.appendChild(m); }
+    m.innerHTML = '<div class="modal-card"><h3>☠ Trip!</h3>' +
+      '<div class="narration voice-on">“' + esc(LNOE.cardNarration("Trip!") || "The ground gives way — a Hero stumbles among the dead!") + '”</div>' +
+      '<div class="csimple mt"><strong>What to do:</strong><ul class="zc-steps"><li><strong>' + esc(heroLabel) +
+      '</strong> must RE-ROLL the dice they just rolled for that Move or Search. The new roll stands.</li></ul></div>' +
+      '<div class="row mt"><button class="btn btn-green" id="trip-ok">✓ Done</button></div></div>';
+    m.classList.add("open");
+    document.getElementById("trip-ok").onclick = function () { m.classList.remove("open"); };
+    autoSave();
+  }
+
   /* ----------------------------- START ----------------------------- */
   function start(gameState) {
     G = gameState;
     G.saveId = "g" + new Date().getTime();   // unique id for this game's auto-save
     G.scenarioLoc = { primary: "", safe: "" };  // other escort scenarios: free-text spots
-    // Save the Townsfolk: each Townsfolk's live status — in their building, with
-    // a Hero, or safe (rescued). safeHouse is never a Zombie spawn area.
-    G.townsfolk = (G.townsfolk || []).map(function (t) {
-      return { who: t.who, building: t.building, status: "building", withHero: "" };
+    G.objectiveCount = 0;   // the scenario's objective counter (kills / saved / etc.)
+    G.ending = false;
+    // Starting gear from Setup: weapon names → weapon objects; cap to 2 + 4.
+    G.players.forEach(function (p) {
+      if (p.weapons && p.weapons.length && typeof p.weapons[0] === "string") {
+        p.weapons = p.weapons.map(function (n) { return findWeapon(n); }).filter(Boolean);
+      }
+      normalizeInventory(p);
     });
-    G.safeHouse = G.safeHouse || "";
     G.bot = new LNOE.Bot(G.baseSet, G.advanced);
     // The Zombie player holds cards from the start, so the Bot can intervene
     // even during the very first Hero turn.
     G.bot.draw(); G.bot.draw();
-    G.sunMax = 12;
+    G.sunMax = G.scenario.turns || 12;   // Sun Track length varies by scenario
     G.sun = 1;
     G.round = 1;
     G.turnNumber = 0;        // zombie turns completed
@@ -115,7 +227,9 @@
 
   function newZTurn() {
     G.zturn = { drawn: [], played: [], dice: [], movement: "", damage: "", narration: "", step: "start",
-      sunNarr: "", spawnRolls: null, spawnTotal: 0, spawnDone: false };
+      sunNarr: "", spawnRolls: null, spawnTotal: 0, spawnDone: false, spawnCards: [], spawnCardsDone: false,
+      revealCards: [], revealTicked: 0, revealEmpty: false };
+    G.cornered = false;  // Cornered lasts only until the start of the next Zombie turn
   }
 
   // Reset the ordered hero-action stepper at the start of a Hero's turn.
@@ -181,6 +295,8 @@
     if (!p.items) p.items = [];
     const room = Math.max(0, CARRY_MAX - p.weapons.length);
     if (p.items.length > room) p.items = p.items.slice(0, room);
+    // Heroes are assumed Outdoors by default so the location is never forgotten.
+    if (p.location !== "building" && p.location !== "outdoor") p.location = "outdoor";
   }
   function carriedWeapons(p) { return (p && p.weapons || []).filter(Boolean); }
   function carriedCount(p) { return carriedWeapons(p).length + ((p && p.items) || []).length; }
@@ -258,54 +374,55 @@
   }
   function heroName(p) { return p.hero + " (" + p.name + ")"; }
 
-  // "Save the Townsfolk": live tracker — where each Townsfolk is now.
-  function townsfolkTracker() {
-    const tf = G.townsfolk || [];
-    let h = '<div class="loc-box" id="tf-tracker"><div class="mg-head">👥 Townsfolk — set where each one is now' +
-      (G.safeHouse ? " · 🏠 safe house: <strong>" + esc(G.safeHouse) + "</strong>" : "") + "</div>";
-    if (!tf.length) {
-      h += '<p class="hint">No Townsfolk were set up for this game (add them in Setup next time).</p></div>';
-      return h;
+  /* ----------------------- OBJECTIVE TRACKER ------------------------ */
+  // A generic counter card per scenario (zombies killed / townsfolk saved /
+  // zombies in the manor). Hitting the target ends the game for that side.
+  function deadHeroCount() { return G.players.filter(function (p) { return p.dead; }).length; }
+  function objectiveCard() {
+    const ot = G.scenario.objTracker;
+    if (!ot) return "";
+    G.objectiveCount = G.objectiveCount || 0;
+    const n = G.objectiveCount, done = n >= ot.target;
+    let h = '<div class="card" id="obj-card"><h3>🎯 Objective</h3>';
+    h += '<div class="obj-kill"><span>' + esc(ot.emoji) + " " + esc(ot.label) + ': <strong class="obj-big">' + n + "</strong> / " + ot.target + "</span> ";
+    h += '<button class="btn btn-sm" id="obj-minus">−</button> <button class="btn btn-sm btn-green" id="obj-plus">+1</button>';
+    if (ot.autoKill) h += '<span class="hint" style="flex-basis:100%;margin-top:2px">Counts up automatically when a Zombie is killed (a won fight or a shot). Use − to fix a miscount.</span>';
+    if (done) {
+      h += '<div class="obj-done mt">✅ ' + esc(ot.label) + " reached " + ot.target + " — the " +
+        (ot.win === "Heroes" ? "Heroes" : "Zombies") + " win! Jumping to the ending…</div>";
     }
-    const heroes = aliveIndices().map(function (i) { return G.players[i].hero; });
-    tf.forEach(function (t, i) {
-      h += '<div class="tf-row">';
-      h += '<span class="tf-who"><strong>' + esc(t.who) + "</strong></span>";
-      h += '<select class="tf-status" data-i="' + i + '">';
-      h += '<option value="building"' + (t.status === "building" ? " selected" : "") + ">Still in " + esc(t.building) + "</option>";
-      h += '<option value="hero"' + (t.status === "hero" ? " selected" : "") + ">With a Hero…</option>";
-      h += '<option value="safe"' + (t.status === "safe" ? " selected" : "") + ">In the safe house (saved ✓)</option>";
-      h += "</select>";
-      if (t.status === "hero") {
-        h += '<select class="tf-hero" data-i="' + i + '"><option value="">— which Hero? —</option>';
-        heroes.forEach(function (hn) { h += '<option value="' + esc(hn) + '"' + (t.withHero === hn ? " selected" : "") + ">" + esc(hn) + "</option>"; });
-        h += "</select>";
-      }
-      h += "</div>";
-    });
-    h += "</div>";
+    if (G.scenario.heroDeathLimit) {
+      h += '<div class="hint" style="flex-basis:100%;margin-top:4px">Heroes lost: ' + deadHeroCount() + " / " +
+        G.scenario.heroDeathLimit + " — if " + G.scenario.heroDeathLimit + " die, the Zombies win.</div>";
+    }
+    h += "</div></div>";   // close .obj-kill AND the #obj-card card
     return h;
   }
-  function refreshTownsfolk() {
-    const el = document.getElementById("tf-tracker");
-    if (el) el.outerHTML = townsfolkTracker();
-    wireTownsfolk();
-    const g = document.querySelector(".move-guide");
-    if (g) g.outerHTML = zombieMovementGuide();
-    autoSave();
+  function refreshObjectiveCard() {
+    const card = document.getElementById("obj-card");
+    if (card) { card.outerHTML = objectiveCard(); wireObjectiveCard(); }
   }
-  function wireTownsfolk() {
-    document.querySelectorAll(".tf-status").forEach(function (s) {
-      s.onchange = function () {
-        const i = +s.dataset.i;
-        G.townsfolk[i].status = this.value;
-        if (this.value !== "hero") G.townsfolk[i].withHero = "";
-        refreshTownsfolk();
-      };
-    });
-    document.querySelectorAll(".tf-hero").forEach(function (s) {
-      s.onchange = function () { G.townsfolk[+s.dataset.i].withHero = this.value; refreshTownsfolk(); };
-    });
+  function wireObjectiveCard() {
+    const plus = document.getElementById("obj-plus");
+    if (plus) plus.onclick = function () { G.objectiveCount = (G.objectiveCount || 0) + 1; autoSave(); refreshObjectiveCard(); checkObjectiveEnd(); };
+    const minus = document.getElementById("obj-minus");
+    if (minus) minus.onclick = function () { G.objectiveCount = Math.max(0, (G.objectiveCount || 0) - 1); autoSave(); refreshObjectiveCard(); };
+  }
+  // Auto-count a Zombie kill toward the objective (kill-objective scenarios).
+  function recordKill() {
+    const ot = G.scenario.objTracker;
+    if (!ot || !ot.autoKill) return;
+    G.objectiveCount = (G.objectiveCount || 0) + 1;
+    autoSave();
+    refreshObjectiveCard();
+    checkObjectiveEnd();
+  }
+  // End the game early when an objective/loss condition is met.
+  function checkObjectiveEnd() {
+    if (!G || G.ending) return;
+    const sc = G.scenario, ot = sc.objTracker;
+    if (ot && (G.objectiveCount || 0) >= ot.target) { G.ending = true; showEnding(ot.win); return; }
+    if (sc.heroDeathLimit && deadHeroCount() >= sc.heroDeathLimit) { G.ending = true; showEnding("Zombies"); return; }
   }
 
   // The Zombie movement priority guide shown in the Move step. Priorities 2–5
@@ -325,22 +442,7 @@
     h += "<li><strong>Fight a Hero in the same space</strong> — it fights instead of moving (step 4).</li>";
     // 2 — protect objective
     h += "<li><strong>Protect the objective</strong>";
-    if (LNOE.isTownsfolkScenario(G.scenario.name)) {
-      // First chase Townsfolk being escorted by a Hero; else go to the building
-      // they're still in. Safe (rescued) Townsfolk are ignored.
-      const tf = (G.townsfolk || []).filter(function (t) { return t.status !== "safe"; });
-      const escorted = tf.filter(function (t) { return t.status === "hero" && t.withHero; });
-      const inBld = tf.filter(function (t) { return t.status === "building"; });
-      if (escorted.length) {
-        h += " — go after " + escorted.map(function (t) { return "<strong>" + esc(t.withHero) + "</strong> (escorting " + esc(t.who) + ")"; }).join(", ") + ".";
-      } else if (inBld.length) {
-        h += " — get to " + inBld.map(function (t) { return "<strong>" + esc(t.building) + "</strong> (" + esc(t.who) + ")"; }).join(", ") + " before the Heroes do.";
-      } else if (!tf.length && (G.townsfolk || []).length) {
-        h += " — all Townsfolk are safe; chase the Heroes instead.";
-      } else {
-        h += " — set where the Townsfolk are above.";
-      }
-    } else if (lcfg) {
+    if (lcfg) {
       // Other escort scenario (free-text): swarm the people, block the route.
       if (loc.primary || loc.safe) {
         h += " — swarm " + esc(lcfg.noun) + (loc.primary ? " at <strong>" + esc(loc.primary) + "</strong>" : "") +
@@ -445,6 +547,14 @@
       h += '<span class="hint inv-count">Carrying ' + total + "/" + CARRY_MAX + " · weapons " + ws.length + "/" + WEAPON_MAX + "</span>";
       h += '<button class="btn ' + (p.dead ? "btn-green" : "btn-ghost") + '" data-dead="' + i + '">' + (p.dead ? "Bring back" : "Mark dead ☠") + "</button>";
       h += "</div>";
+      // Where the Hero is right now — in a building or out in the open.
+      const loc = p.location || "";
+      h += '<div class="inv-line loc-line"><span class="inv-tag">📍 Where</span>';
+      h += '<div class="loc-seg">';
+      h += '<button class="btn btn-sm loc-btn' + (loc === "building" ? " loc-on" : "") + '" data-loc="' + i + ':building">🏚 In a building</button>';
+      h += '<button class="btn btn-sm loc-btn' + (loc === "outdoor" ? " loc-on" : "") + '" data-loc="' + i + ':outdoor">🌲 Outdoors</button>';
+      h += "</div>";
+      h += "</div>";
       // Weapons (max 2 of the 4).
       h += '<div class="inv-line"><span class="inv-tag">🗡 Weapons</span>';
       ws.forEach(function (w, wi) {
@@ -495,7 +605,14 @@
   // Wire the chip inventory: mark-dead, add/remove weapons, add/remove items.
   function wireRosterInventory(el) {
     el.querySelectorAll("[data-dead]").forEach(function (b) {
-      b.onclick = function () { const i = +b.dataset.dead; G.players[i].dead = !G.players[i].dead; renderRoster(); };
+      b.onclick = function () { const i = +b.dataset.dead; G.players[i].dead = !G.players[i].dead; renderRoster(); refreshObjectiveCard(); checkObjectiveEnd(); };
+    });
+    el.querySelectorAll("[data-loc]").forEach(function (b) {
+      b.onclick = function () {
+        const pr = b.dataset.loc.split(":"), p = G.players[+pr[0]];
+        p.location = pr[1];   // always set one or the other — default is Outdoors
+        renderRoster();
+      };
     });
     el.querySelectorAll("[data-rmw]").forEach(function (a) {
       a.onclick = function (e) { e.preventDefault(); const pr = a.dataset.rmw.split(":"); G.players[+pr[0]].weapons.splice(+pr[1], 1); renderRoster(); };
@@ -557,8 +674,38 @@
   }
   // Does a card let the Heroes lose the game (e.g. A Town Overrun empties the deck)?
   function cardCanLose(text) { return /automatically lose/i.test(text) || /heroes (auto|immediately )?lose/i.test(text); }
+  // Which phase of the Zombie turn a held card is played in:
+  //   draw  → resolved the moment the Zombie reveals its hand (step 2)
+  //   spawn → played during "Spawn new Zombies" (step 5)
+  //   fight → held for a fight (the fight-resolution modal offers it)
+  //   hold  → held for a Hero reaction (only the hidden-hand count shows it)
+  function cardPhase(card) {
+    const n = (card.name || "").toLowerCase();
+    if (n.indexOf("relentless advance") > -1) return "spawn";
+    if (n.indexOf("too many") > -1) return "spawn";
+    if (card.timing === "zturn_end") return "spawn";
+    if (card.timing === "fight") return "fight";
+    if (card.timing === "reaction" || card.timing === "hero_move") return "hold";
+    return "draw"; // immediate, zturn_start, anytime
+  }
   function pickFrom(list) { return (list && list.length) ? list[Math.floor(Math.random() * list.length)] : null; }
   function pickBuilding() { return pickFrom((G && G.buildings) || []); }
+  // Cards that drop a Zombie onto a Hero (e.g. Surprise Attack) target a HERO,
+  // not a building.
+  function cardNeedsHero(card) { return /surprise attack/i.test(card.name || ""); }
+  // Pick a living Hero at a given location ("building" or "outdoor"). With
+  // strict=true, ONLY heroes at that location are eligible (returns null if
+  // none); otherwise it falls back to any living Hero at random.
+  function pickHeroPref(pref, strict) {
+    const idxs = aliveIndices();
+    if (!idxs.length) return null;
+    const want = idxs.filter(function (i) { return G.players[i].location === pref; });
+    if (strict && !want.length) return null;
+    const pool = want.length ? want : idxs;
+    const i = pool[Math.floor(Math.random() * pool.length)];
+    const p = G.players[i];
+    return { idx: i, hero: p.hero, heroName: p.name, loc: p.location || "" };
+  }
   // Every board location the Bot could target: buildings + labelled spawning pits.
   function allAreas() {
     const out = [];
@@ -583,26 +730,77 @@
   // The Bot's automatic turn: draw to refill its hidden hand, then play the
   // cards a Zombie player plays on its own turn. Fight/reaction cards are kept
   // hidden for later. The player never sees the hand or makes the choice.
+  // Resolve a single DRAW-phase card: remove it from the hand and build the
+  // point-form play (target/hero/roll baked in). Returns the play object.
+  function playDrawCard(c) {
+    G.bot.playFromHand(c.uid);
+    G.zturn.played.push(c.name);
+    // If the card targets a board location, pick one and always say what
+    // happens to it in the narration — naming the chosen area when one is
+    // configured, or speaking of "the building/area" generically otherwise.
+    const isShamble = /shamble/i.test(c.name);
+    const needsHero = cardNeedsHero(c);
+    const needsTarget = !needsHero && !isShamble && cardNeedsTarget(c.text);
+    const target = needsTarget ? pickFrom(targetPoolFor(c)) : null;
+    // Surprise Attack ONLY hits a Hero inside a building (strict — no target if
+    // none). Shamble lurches after a Hero out in the open (falls back to any).
+    const heroPref = isShamble ? "outdoor" : "building";
+    const heroStrict = needsHero;
+    const hp = (needsHero || isShamble) ? pickHeroPref(heroPref, heroStrict) : null;
+    // Pre-roll the die for plain/Shamble cards that need one (no button later).
+    const roll = ((isShamble || (!needsTarget && !needsHero)) && cardNeedsRoll(c.text)) ? (1 + Math.floor(Math.random() * 6)) : 0;
+    // Cornered is a turn-long effect: every Zombie rolls 2 extra fight dice
+    // until the next Zombie turn. Flag it so the fight boxes add the dice.
+    if (/cornered/i.test(c.name)) G.cornered = true;
+    // Short narration: one sentence, not the long thematic reading.
+    const narr = shortSentence(needsTarget ? LNOE.cardBuildingNarration(c.name, target) : LNOE.cardNarration(c.name));
+    const pl = { name: c.name, simple: c.simple, text: c.text, remains: c.remains, timing: c.timing,
+      narration: narr, target: target, roll: roll, heroPref: heroPref, heroStrict: heroStrict,
+      hero: hp ? hp.hero : null, heroName: hp ? hp.heroName : "", heroLoc: hp ? hp.loc : "" };
+    pl.steps = zombieCardSteps(pl);
+    return pl;
+  }
+
   function runBotTurn() {
     for (let i = 0; i < 2; i++) { const c = G.bot.draw(); if (c) G.zturn.drawn.push(c.name); }
-    const autoTimings = ["immediate", "zturn_start", "anytime", "zturn_end"];
-    const toPlay = G.bot.hand.filter(function (c) { return autoTimings.indexOf(c.timing) > -1; });
+    // Only resolve DRAW-phase cards now. Fight cards wait for the fight modal;
+    // spawn cards (Relentless Advance, There's Too Many) play in step 5.
     const played = [];
-    toPlay.forEach(function (c) {
+    const done = {};   // uids already resolved (guards Oh the Horror cascades / reshuffles)
+    const queue = G.bot.hand.filter(function (c) { return cardPhase(c) === "draw"; });
+    while (queue.length) {
+      const c = queue.shift();
+      if (done[c.uid]) continue;
+      done[c.uid] = true;
+      played.push(playDrawCard(c));
+      // "Oh the Horror!": the Zombie draws 3 more cards. Any of those that are
+      // also draw-phase get played and shown this turn too.
+      if (/horror/i.test(c.name)) {
+        for (let i = 0; i < 3; i++) { const nc = G.bot.draw(); if (nc) G.zturn.drawn.push(nc.name); }
+        G.bot.hand.forEach(function (hc) {
+          if (!done[hc.uid] && cardPhase(hc) === "draw") queue.push(hc);
+        });
+      }
+    }
+    G.bot.capHand(4);   // the Zombie keeps at most 4 cards in hand
+    return { played: played };
+  }
+
+  // Play the SPAWN-phase cards the Zombie is holding (There's Too Many,
+  // Relentless Advance). Pre-roll their dice and bake in the result. Called
+  // once, when the player spawns Zombies in step 5.
+  function buildSpawnCards() {
+    const out = [];
+    G.bot.hand.filter(function (c) { return cardPhase(c) === "spawn"; }).forEach(function (c) {
       G.bot.playFromHand(c.uid);
       G.zturn.played.push(c.name);
-      // If the card targets a board location, pick one and always say what
-      // happens to it in the narration — naming the chosen area when one is
-      // configured, or speaking of "the building/area" generically otherwise.
-      const needsTarget = cardNeedsTarget(c.text);
-      const target = needsTarget ? pickFrom(targetPoolFor(c)) : null;
-      const narr = needsTarget
-        ? (LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(c.name, target))
-        : cardThematic(c);
-      played.push({ name: c.name, simple: c.simple, text: c.text, remains: c.remains, timing: c.timing,
-        narration: narr, target: target });
+      const roll = cardNeedsRoll(c.text) ? (1 + Math.floor(Math.random() * 6)) : 0;
+      const narr = shortSentence(LNOE.cardNarration(c.name));
+      const pl = { name: c.name, simple: c.simple, text: c.text, remains: c.remains, narration: narr, roll: roll };
+      pl.steps = zombieCardSteps(pl);
+      out.push(pl);
     });
-    return { played: played };
+    return out;
   }
 
   /* --------------------------- SHARED BITS -------------------------- */
@@ -683,6 +881,7 @@
     G.players.forEach(normalizeInventory);
     const p = G.players[G.playerIndex];
     let h = header();
+    h += objectiveCard();
 
     if (G.round === 1 && G.playerIndex === 0 && G.turnNumber === 0) {
       h += '<div class="card" style="border-color:var(--blood-bright)">';
@@ -715,14 +914,33 @@
       h += '<div class="step-no">' + (i + 1) + "</div>";
       h += '<div class="step-body"><h4>' + esc(a.title) + "</h4><p>" + esc(a.help) + "</p>";
       if (stateCls === "active") {
-        // The Fight step needs the Zombie to roll back.
+        // The Shoot step: pick a gun, roll to hit, mark the kill (gun sound).
+        if (a.shoot) {
+          const rw = carriedWeapons(p).filter(function (w) { return w.ranged; });
+          h += '<div class="mt">';
+          if (!rw.length) {
+            h += '<span class="hint">' + esc(p.hero) + " has no ranged weapon (Gun/Flare). Pick one up first, or skip this step.</span>";
+          } else {
+            h += '<label class="hint">🔫 Shooting with: <select id="hs-weapon">';
+            rw.forEach(function (w, idx) { h += '<option value="' + idx + '">' + esc(weaponLabel(w)) + "</option>"; });
+            h += "</select></label>";
+            h += '<p class="hint">Roll your dice on the table. Then mark the result:</p>';
+            h += '<div class="row mt"><button class="btn btn-green" id="hs-kill">🎯 Zombie killed — fire! 🔫</button>';
+            h += '<button class="btn" id="hs-miss">✗ Missed</button></div>';
+            h += '<div id="hs-out" class="mt"></div>';
+          }
+          h += "</div>";
+        }
+        // The Fight step needs the Zombie to roll back. The Zombie ALWAYS rolls
+        // 1 die (only a card changes it) — the player can't set the number.
         if (a.fight) {
+          const hfDice = 1 + (G.cornered ? 2 : 0);
           h += '<div class="mt"><span class="hint">A fight means BOTH sides roll. Roll the Zombie’s dice, then compare the highest to the Hero’s highest die (the Hero loses ties unless a card says otherwise):</span>';
-          h += '<div class="toolbar mt"><label class="hint">Zombie dice: <select id="hf-ndice">';
-          for (let n = 1; n <= 6; n++) h += '<option value="' + n + '"' + (n === 1 ? " selected" : "") + ">" + n + "</option>";
-          h += '</select></label><button class="btn btn-rust" id="hf-roll">🎲 Zombie rolls</button></div>';
+          if (G.cornered) h += '<p class="hint" style="color:#ffd9a3">⚔ <strong>Cornered</strong> is active — the Zombie rolls 2 extra dice this turn.</p>';
+          h += '<div class="toolbar mt"><span class="hint">The Zombie rolls <strong>' + hfDice + '</strong> ' +
+            'die' + (hfDice === 1 ? "" : "ce") + (G.cornered ? " (1 base + 2 from Cornered)" : " — just the 1 unless a card adds more") + '.</span>';
+          h += '<button class="btn btn-rust" id="hf-roll">🎲 Zombie rolls</button></div>';
           h += '<div id="hf-dice-out" class="dice-area"></div>';
-          h += '<p class="hint">A basic Zombie rolls 1 die. Add dice for cards like <em>Uuuurrrggghh!</em> (+2) or <em>Cornered</em>.</p>';
           h += '<div class="mt"><label class="hint">🗡 Fighting with: ' + fightWeaponSelect("hf-weapon", p) + "</label>";
           h += '<span class="hint" style="display:block;margin-top:4px">Pick which carried weapon you used. Hand weapon → a heavy whack on a win; ranged weapon → a gunshot. Manage what each Hero carries in the Heroes list below.</span></div>';
           h += '<div class="row mt"><span style="flex-basis:100%" class="hint">State the result — the Zombie may then intervene with a card:</span>';
@@ -747,6 +965,7 @@
     h += '<label class="field">Event card the Hero plays' + heroEventDatalist() +
       '<input type="text" id="g-herocard" list="hero-events" placeholder="Start typing… e.g. Faith, Get Back You Devils, Just a Scratch"></label>';
     h += '<button class="btn btn-rust" id="g-playcard">🧍 Hero plays this →</button>';
+    h += '<hr class="divider">' + botHandSummary();
     h += "</div>";
 
     h += rosterCard();
@@ -767,9 +986,13 @@
 
     panel().querySelectorAll(".step.active [data-act]").forEach(function (btn) {
       btn.onclick = function () {
+        const finishedStep = HERO_ACTIONS[G.heroStep] || {};
+        const didMoveOrSearch = btn.dataset.act === "done" && /move or search/i.test(finishedStep.title || "");
         G.heroDone[G.heroStep] = btn.dataset.act === "done" ? "done" : "skip";
         G.heroStep++;
         renderHero();
+        // The Zombie can Trip a Hero right after they Move or Search.
+        if (didMoveOrSearch) botPlaysTrip(p.hero);
       };
     });
     panel().querySelectorAll(".step-undo").forEach(function (a) {
@@ -780,9 +1003,25 @@
         renderHero();
       };
     });
+    // Shoot step wiring (no dice in the app — the player rolls physically).
+    const hsKill = document.getElementById("hs-kill");
+    if (hsKill) hsKill.onclick = function () {
+      narrationMusic(6000);
+      LNOE.FX.gunshot();
+      const out = document.getElementById("hs-out");
+      if (out) out.innerHTML = '<div class="csimple">💥 Hit! The Zombie drops — remove it from the board.</div>';
+      if (voiceOn) setTimeout(function () { LNOE.TTS.speak("The shot rings out across the dark — the dead thing drops where it stood."); }, 400);
+      recordKill();
+    };
+    const hsMiss = document.getElementById("hs-miss");
+    if (hsMiss) hsMiss.onclick = function () {
+      const out = document.getElementById("hs-out");
+      if (out) out.innerHTML = '<span class="hint">Missed — no kill this time.</span>';
+    };
+
     const hfRoll = document.getElementById("hf-roll");
     if (hfRoll) hfRoll.onclick = function () {
-      const n = +document.getElementById("hf-ndice").value;
+      const n = 1 + (G.cornered ? 2 : 0);   // locked: 1, or 3 while Cornered is active
       const r = G.bot.roll(n);
       let html = "";
       r.rolls.forEach(function (v) { html += '<div class="die' + (v === r.highest ? " skull" : "") + '">' + v + "</div>"; });
@@ -806,17 +1045,36 @@
       startResolution({ type: "card", heroCardText: name, title: "Hero plays: " + name });
     };
     wireRoster();
-    document.getElementById("g-endhero").onclick = endHeroTurn;
+    wireObjectiveCard();
+    document.getElementById("g-endhero").onclick = function () { askHeroLocation(p, endHeroTurn); };
     autoSave();
+  }
+
+  // On ending a Hero's turn, confirm where they finished. "In a building" sets
+  // that; anything else (Outdoors) is the default. Then run onDone().
+  function askHeroLocation(p, onDone) {
+    let m = document.getElementById("loc-modal");
+    if (!m) { m = document.createElement("div"); m.id = "loc-modal"; m.className = "modal-overlay"; document.body.appendChild(m); }
+    m.innerHTML = '<div class="modal-card"><h3>📍 ' + esc(p.hero) + '’s position</h3>' +
+      '<p>Is <strong>' + esc(p.hero) + '</strong> finishing the turn <strong>inside a building</strong>?</p>' +
+      '<p class="hint">If not, they’re Outdoors. This is what Zombie cards like Surprise Attack and Shamble target.</p>' +
+      '<div class="row mt"><button class="btn btn-green" id="loc-yes">🏚 In a building</button>' +
+      '<button class="btn btn-primary" id="loc-no">🌲 Outdoors</button></div></div>';
+    m.classList.add("open");
+    function done(loc) { p.location = loc; m.classList.remove("open"); autoSave(); onDone(); }
+    document.getElementById("loc-yes").onclick = function () { done("building"); };
+    document.getElementById("loc-no").onclick = function () { done("outdoor"); };
   }
 
   function botHandSummary() {
     return '<div class="hand-summary mt">' + handSummaryInner() + "</div>";
   }
   function handSummaryInner() {
-    // Count only — the Zombie's hand is hidden from the players.
-    return '<span class="hint">The Zombie is secretly holding ' + G.bot.hand.length +
-      " Zombie card(s) · " + G.bot.cardsLeft() + " left in its deck. You never see what they are.</span>";
+    // Count only — the Zombie's hand is hidden from the players. The deck
+    // reshuffles its discards, so the Zombie never runs out of cards.
+    const max = G.bot.HAND_MAX || 4;
+    return '<span class="hint">🃏 The Zombie is secretly holding <strong>' + G.bot.hand.length +
+      " of " + max + "</strong> cards (you never see what they are). Its deck reshuffles — it never runs out.</span>";
   }
 
 
@@ -849,6 +1107,7 @@
     h += '<div class="who">☠ Zombie Turn #' + G.turnNumber + "</div>";
     h += "</div>";
 
+    h += objectiveCard();
     h += '<div class="narration voice-on">' + esc(G.zturn.narration) + ' <button class="btn btn-ghost" id="z-speak" style="float:right">🔊 Read aloud</button></div>';
 
     // 1 · The sun marker — it advances at the START of the Zombie turn.
@@ -871,9 +1130,7 @@
     h += '<div class="card"><h3>3 · Move the Zombies</h3>';
     h += '<p class="section-help">Move every Zombie 1 space (or as a card says), following the priority below. Note anything important — it’s saved to the turn log.</p>';
     const _lcfg = LNOE.scenarioLocationCfg ? LNOE.scenarioLocationCfg(G.scenario.name) : null;
-    if (LNOE.isTownsfolkScenario(G.scenario.name)) {
-      h += townsfolkTracker();
-    } else if (_lcfg) {
+    if (_lcfg) {
       G.scenarioLoc = G.scenarioLoc || { primary: "", safe: "" };
       h += '<div class="loc-box"><div class="mg-head">📍 Rescue tracking — the guide below uses these:</div>';
       h += '<label class="field" style="margin:0 0 8px">' + esc(_lcfg.primaryLabel) +
@@ -884,14 +1141,17 @@
     h += zombieMovementGuide();
     h += "</div>";
 
-    // 4 · Fight + dice
+    // 4 · Fight + dice. The Zombie ALWAYS rolls 1 die — only a card changes it
+    // (Cornered +2 for the whole turn; Uuuurrrggghh! +2 in a single fight). The
+    // player can't set the number by hand.
+    const baseDice = 1 + (G.cornered ? 2 : 0);
     h += '<div class="card"><h3>4 · Fight the Heroes</h3>';
-    h += '<p class="section-help">When a Zombie fights a Hero, roll here. Add extra dice for cards like Uuuurrrggghh! or Cornered. Compare the highest die to the Hero’s roll.</p>';
+    h += '<p class="section-help">When a Zombie fights a Hero, roll the Zombie’s dice here, then state who won. The Zombie rolls just 1 die unless a card adds more — the game sets the number for you.</p>';
+    if (G.cornered) h += '<p class="hint" style="color:#ffd9a3">⚔ <strong>Cornered</strong> is active this turn — the Zombie rolls <strong>2 extra Fight Dice</strong> (Heroes win ties). Already counted below.</p>';
     h += '<div class="toolbar">';
-    h += '<label class="hint">Dice to roll: <select id="z-ndice">';
-    for (let n = 1; n <= 8; n++) h += '<option value="' + n + '"' + (n === 1 ? " selected" : "") + ">" + n + "</option>";
-    h += "</select></label>";
-    h += '<button class="btn btn-rust" id="z-roll">🎲 Roll dice</button>';
+    h += '<span class="hint">The Zombie rolls <strong id="z-ndice-lbl">' + baseDice + '</strong> ' +
+      'die' + (baseDice === 1 ? "" : "ce") + (G.cornered ? " (1 base + 2 from Cornered)" : " (just the 1, no card boosting it)") + ".</span>";
+    h += '<button class="btn btn-rust" id="z-roll">🎲 Roll the Zombie’s dice</button>';
     h += "</div>";
     h += '<div id="z-dice-out" class="dice-area"></div>';
     h += '<div class="toolbar mt"><label class="hint">Hero in this fight: <select id="zf-hero"></select></label>';
@@ -903,7 +1163,7 @@
 
     // 5 · Spawn — AFTER the fights. Auto-roll one die per spawning pit, then place them.
     h += '<div class="card"><h3>5 · Spawn new Zombies</h3>';
-    h += '<p class="section-help">Now spawn the Zombies. One die sets how many rise, and the game tells you exactly which pit to add each one to.</p>';
+    h += '<p class="section-help">Now spawn the Zombies. One die sets how many rise, and the game tells you exactly which pit to add each one to. The Zombie may also play an end-of-turn card here (extra Zombies or a relentless advance).</p>';
     h += '<div id="z-spawn-pits">' + spawnPitsList() + "</div>";
     h += '<div id="z-addpit-wrap" class="mt">' + spawnAddControl() + "</div>";
     h += '<button class="btn btn-rust btn-lg mt" id="z-spawn">☠ Spawn Zombies</button>';
@@ -933,6 +1193,97 @@
     autoSave();
   }
 
+  // Read ONE revealed card aloud (the narrator no longer reads them all at once).
+  function speakReveal(idx) {
+    const cards = (G.zturn && G.zturn.revealCards) || [];
+    const p = cards[idx];
+    if (!p) return;
+    hordeSfx(stripQuotes(p.narration));
+    if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(p.narration)); }, 300);
+  }
+
+  // The Zombie's played cards, revealed ONE AT A TIME. The player ticks each
+  // card as placed on the board; only then is the next card shown and read.
+  function renderZombieReveal() {
+    const out = document.getElementById("z-run-out");
+    if (!out) return;
+    if (G.zturn.revealEmpty) {
+      out.innerHTML = '<div class="narration voice-on">The dead shuffle and moan in the dark, but the Zombie keeps its cards hidden this turn. Move the Zombies and fight as normal.</div>';
+      return;
+    }
+    const cards = G.zturn.revealCards || [];
+    if (!cards.length) { out.innerHTML = ""; return; }
+    const ticked = G.zturn.revealTicked || 0;
+    const total = cards.length;
+    const lastIdx = Math.min(ticked, total - 1);   // newest card shown so far
+    let html = '<p class="hint">Card <strong>' + Math.min(ticked + 1, total) + '</strong> of <strong>' + total +
+      '</strong> — play each one on the board, then tick it to reveal the next.</p>';
+    for (let idx = 0; idx <= lastIdx; idx++) {
+      const p = cards[idx];
+      const isCurrent = (idx === ticked);   // shown, not yet ticked
+      const isDone = idx < ticked;
+      html += '<div class="card-draw' + (isDone ? " reveal-done" : "") + '">';
+      html += '<div class="ctype">' + (p.remains ? "Zombie Event · Stays in play" : "Zombie Event") +
+        (isDone ? " · ✓ played" : "") + "</div>";
+      html += '<div class="ctitle">' + esc(p.name) + "</div>";
+      if (p.remains) html += '<span class="pill tag-remains">Stays in play</span>';
+      html += '<div class="rnarr" id="zc-narr-' + idx + '">“' + esc(p.narration) + '”</div>';
+      html += '<div class="csimple"><strong>What to do:</strong><ul class="zc-steps" id="zc-steps-' + idx + '">' +
+        p.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ul></div>";
+      if (isCurrent) {
+        if (p.hero) {
+          html += '<div class="mt"><a href="#" class="zc-reroll hint" data-i="' + idx + '" data-kind="hero">🧍 Pick a different Hero</a></div>';
+        } else if (cardNeedsTarget(p.text)) {
+          html += '<div class="mt"><a href="#" class="zc-reroll hint" data-i="' + idx + '">🎲 ' +
+            (cardNoBuilding(p.text) ? "Pick a different area" : "Pick a different building") + "</a></div>";
+        }
+        if (cardCanLose(p.text)) {
+          html += '<div class="mt"><span class="hint">If this empties the Hero deck, the Heroes lose the game.</span><br>' +
+            '<button class="btn btn-primary zc-lose mt">☠ Hero deck is empty — Heroes lose</button></div>';
+        }
+        html += '<div class="mt"><button class="btn btn-green zc-tick">✓ I’ve played this on the board' +
+          (ticked + 1 < total ? " — reveal the next card ▶" : "") + "</button></div>";
+      }
+      html += "</div>";
+    }
+    if (ticked >= total) {
+      html += '<p class="hint" style="color:#9fe0a0">✓ All ' + total + ' card(s) played. Carry on with the Zombie turn below.</p>';
+    }
+    out.innerHTML = html;
+
+    // Re-pick the Hero / building for the CURRENT card only, then rebuild it.
+    out.querySelectorAll(".zc-reroll").forEach(function (b) {
+      b.onclick = function (e) {
+        e.preventDefault();
+        const p = cards[+b.dataset.i];
+        if (b.dataset.kind === "hero") {
+          const hp = pickHeroPref(p.heroPref || "building", p.heroStrict);
+          p.hero = hp ? hp.hero : null; p.heroName = hp ? hp.heroName : ""; p.heroLoc = hp ? hp.loc : "";
+        } else {
+          const newT = pickFrom(targetPoolFor({ text: p.text }));
+          p.target = newT;
+          p.narration = shortSentence(LNOE.cardBuildingNarration(p.name, newT));
+        }
+        p.steps = zombieCardSteps(p);
+        renderZombieReveal();
+        autoSave();
+        LNOE.FX.groan();
+      };
+    });
+    out.querySelectorAll(".zc-lose").forEach(function (b) {
+      b.onclick = function () { showEnding("Zombies"); };  // Heroes lost — straight to the ending
+    });
+    out.querySelectorAll(".zc-tick").forEach(function (b) {
+      b.onclick = function () {
+        G.zturn.revealTicked = (G.zturn.revealTicked || 0) + 1;
+        const next = G.zturn.revealTicked;
+        renderZombieReveal();
+        autoSave();
+        if (next < total) { LNOE.FX.groan(); speakReveal(next); }  // read the newly revealed card
+      };
+    });
+  }
+
   function wireZombie() {
     document.getElementById("z-speak").onclick = function () { LNOE.TTS.speak(stripQuotes(G.zturn.narration)); };
 
@@ -944,79 +1295,29 @@
         return;
       }
       const result = runBotTurn();
-      let html = "";
-      if (!result.played.length) {
-        html = '<div class="narration voice-on">The dead shuffle and moan in the dark, but the Zombie keeps its cards hidden this turn. Move the Zombies and fight as normal.</div>';
-      } else {
-        result.played.forEach(function (p, idx) {
-          html += '<div class="card-draw">';
-          html += '<div class="ctype">' + (p.remains ? "Zombie Event · Stays in play" : "Zombie Event") + "</div>";
-          html += '<div class="ctitle">' + esc(p.name) + "</div>";
-          if (p.remains) html += '<span class="pill tag-remains">Stays in play</span>';
-          html += '<div class="rnarr" id="zc-narr-' + idx + '">“' + esc(p.narration) + '”</div>';
-          html += '<div class="csimple"><strong>Do this:</strong> ' + esc(p.simple) + "</div>";
-          if (cardNeedsTarget(p.text)) {
-            html += '<div class="csimple mt" id="zc-target-' + idx + '">🏚 The Zombie targets: <strong>' +
-              esc(p.target || "— none set —") + "</strong></div>";
-            html += '<div class="mt"><button class="btn btn-rust zc-reroll" data-i="' + idx + '">🎲 Re-randomise the area</button> ' +
-              '<span class="hint">' + (cardNoBuilding(p.text)
-                ? "This card can’t target a building — it picks another area on your board."
-                : "Roll a different building/area for this card.") + "</span></div>";
-          } else if (cardNeedsRoll(p.text)) {
-            html += '<div class="mt"><button class="btn btn-rust zc-roll" data-i="' + idx + '">🎲 Roll the dice for the Zombie</button> ' +
-              '<span class="zc-roll-out hint"></span></div>';
-          }
-          if (cardCanLose(p.text)) {
-            html += '<div class="mt"><span class="hint">If this empties the Hero deck, the Heroes lose the game.</span><br>' +
-              '<button class="btn btn-primary zc-lose mt">☠ Hero deck is empty — Heroes lose</button></div>';
-          }
-          html += "</div>";
-        });
-      }
-      out.innerHTML = html;
+      G.zturn.revealCards = result.played;
+      G.zturn.revealTicked = 0;                 // how many the player has ticked as played
+      G.zturn.revealEmpty = !result.played.length;
       G.zturn.botRan = true;
       this.disabled = true; this.textContent = "☠ The Zombie has played";
       narrationMusic(14000); // horror background music for the reveal
       LNOE.FX.stinger();
       setTimeout(function () { LNOE.FX.groan(); }, 300);
-      if (result.played.length) {
-        const speech = result.played.map(function (p) { return stripQuotes(p.narration); }).join("  ");
-        hordeSfx(speech);
-        if (voiceOn) setTimeout(function () { LNOE.TTS.speak(speech); }, 650);
-      }
-      out.querySelectorAll(".zc-roll").forEach(function (b) {
-        b.onclick = function () {
-          const d = 1 + Math.floor(Math.random() * 6);
-          b.nextElementSibling.innerHTML = '🎲 The Zombie rolled a <strong>' + d +
-            "</strong> — apply that many (spaces moved / Zombies spawned / building number).";
-          LNOE.FX.groan();
-        };
-      });
-      // Re-randomise which building/area a card targets, and re-tell its narration.
-      out.querySelectorAll(".zc-reroll").forEach(function (b) {
-        b.onclick = function () {
-          const i = +b.dataset.i;
-          const p = result.played[i];
-          const newT = pickFrom(targetPoolFor({ text: p.text }));
-          p.target = newT;
-          p.narration = LNOE.suspenseLine() + " " + LNOE.cardBuildingNarration(p.name, newT);
-          const tEl = document.getElementById("zc-target-" + i);
-          if (tEl) tEl.innerHTML = "🏚 The Zombie targets: <strong>" + esc(newT || "(add a building/area in Setup)") + "</strong>";
-          const nEl = document.getElementById("zc-narr-" + i);
-          if (nEl) nEl.innerHTML = "“" + esc(p.narration) + "”";
-          LNOE.FX.groan();
-          if (voiceOn && newT) LNOE.TTS.speak(stripQuotes(p.narration));
-        };
-      });
-      out.querySelectorAll(".zc-lose").forEach(function (b) {
-        b.onclick = function () { showEnding("Zombies"); };  // Heroes lost — straight to the ending
-      });
+      renderZombieReveal();
+      if (result.played.length) speakReveal(0);  // read ONLY the first card
       refreshHandSummaries();
       renderPlayed();
     };
+    // After a re-render (e.g. returning from a fight), restore the reveal where
+    // the player left off — same disabled button, same ticked-so-far cards.
+    if (G.zturn.botRan) {
+      const zr = document.getElementById("z-run");
+      if (zr) { zr.disabled = true; zr.textContent = "☠ The Zombie has played"; }
+      renderZombieReveal();
+    }
 
     document.getElementById("z-roll").onclick = function () {
-      const n = +document.getElementById("z-ndice").value;
+      const n = 1 + (G.cornered ? 2 : 0);   // locked: 1, or 3 while Cornered is active
       const r = G.bot.roll(n);
       G.zturn.dice.push({ n: n, rolls: r.rolls, highest: r.highest });
       let html = "";
@@ -1026,8 +1327,8 @@
       html += '<span class="hint" style="margin-left:6px">Highest: <strong>' + r.highest + "</strong> — compare to the Hero’s highest die.</span>";
       document.getElementById("z-dice-out").innerHTML = html;
     };
-    // Save the Townsfolk: wire the live status tracker.
-    wireTownsfolk();
+    // Objective card (kill counter / Townsfolk tracker) wiring.
+    wireObjectiveCard();
     // Escort-scenario location inputs: update state and refresh the guide live.
     function refreshMoveGuide() {
       const g = document.querySelector(".move-guide");
@@ -1130,12 +1431,20 @@
       h += '<div class="csimple mt">No spawning pits tagged — place the ' + G.zturn.spawnTotal +
         " Zombie(s) as the scenario directs.</div>";
     }
+    // End-of-turn cards the Zombie played during this spawn step.
+    (G.zturn.spawnCards || []).forEach(function (p) {
+      h += '<div class="card-draw mt"><div class="ctype">Zombie Event' + (p.remains ? " · Stays in play" : "") + "</div>";
+      h += '<div class="ctitle">' + esc(p.name) + "</div>";
+      h += '<div class="rnarr">“' + esc(p.narration) + '”</div>';
+      h += '<div class="csimple"><strong>What to do:</strong><ul class="zc-steps">' +
+        p.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ul></div></div>";
+    });
     return h;
   }
   // Mid-game, a new pit can only be tagged on a building that is on the board
   // and not already a pit — same rule as Setup.
   function spawnAddControl() {
-    const avail = ((G.buildings) || []).filter(function (b) { return (G.spawnAreas || []).indexOf(b) === -1 && b !== G.safeHouse; });
+    const avail = ((G.buildings) || []).filter(function (b) { return (G.spawnAreas || []).indexOf(b) === -1; });
     if (!avail.length) {
       return '<p class="hint">Every building on your board is already a pit (or none were selected — add buildings in Setup).</p>';
     }
@@ -1189,10 +1498,20 @@
       G.zturn.spawnDone = true;
       G.zturn.spawnNarr = spawnNarration();   // names how many rise and at which building
       G.zturn.dice.push({ n: 1, rolls: [roll], highest: roll, kind: "spawn" });
+      // The Zombie also plays any end-of-turn cards it was holding — but only
+      // once (re-clicking Spawn re-rolls the dice, it doesn't replay cards).
+      if (!G.zturn.spawnCardsDone) {
+        G.zturn.spawnCards = buildSpawnCards();
+        G.zturn.spawnCardsDone = true;
+      }
       document.getElementById("z-spawn-out").innerHTML = spawnResultText();
       // Zombie groan AFTER the spawn step, as requested.
       if (LNOE.FX) LNOE.FX.groan();
-      if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(G.zturn.spawnNarr)); }, 250);
+      const spawnSpeech = stripQuotes(G.zturn.spawnNarr) +
+        (G.zturn.spawnCards || []).map(function (p) { return "  " + stripQuotes(p.narration); }).join("");
+      if (voiceOn) setTimeout(function () { LNOE.TTS.speak(spawnSpeech); }, 250);
+      renderPlayed();
+      refreshHandSummaries();
       autoSave();
     };
   }
@@ -1248,7 +1567,8 @@
       return hand.find(function (c) { return c.name.toLowerCase().indexOf(frag) > -1; });
     };
     if (ctx.type === "fight") {
-      if (ctx.heroWinning && ctx.gun) { const r = find("resilient"); if (r) return r; }
+      // Resilient: a Hero killed a Zombie with a ranged weapon → make them ditch it.
+      if (ctx.heroWinning && (ctx.gun || (ctx.weapon && ctx.weapon.ranged))) { const r = find("resilient"); if (r) return r; }
       if (ctx.heroWinning) {
         const order = ["undead hate the living", "braaains", "uuuurrrggghh", "cornered"];
         for (let i = 0; i < order.length; i++) { const c = find(order[i]); if (c) return c; }
@@ -1280,16 +1600,20 @@
     renderResolution();
   }
 
-  // Suggest how many dice the Zombie rolls, based on fight cards the Bot played.
+  // Suggest how many dice the Zombie rolls: 1 base, +2 if Cornered is active
+  // this turn, +2 per Uuuurrrggghh! the Bot played this fight.
   function suggestZombieDice(r) {
-    let n = 1;
+    let n = 1 + (G.cornered ? 2 : 0);
     r.steps.forEach(function (s) {
-      if (!s.card) return;
-      const nm = s.card.toLowerCase();
-      if (nm.indexOf("uuuurrrggghh") > -1) n += 2;
-      if (nm.indexOf("cornered") > -1) n += 2;
+      if (s.card && s.card.toLowerCase().indexOf("uuuurrrggghh") > -1) n += 2;
     });
     return Math.min(n, 8);
+  }
+  // +1 to the Zombie's highest die for each Braaains! played this fight.
+  function fightResultBonus(r) {
+    let b = 0;
+    r.steps.forEach(function (s) { if (s.card && s.card.toLowerCase().indexOf("braaains") > -1) b += 1; });
+    return b;
   }
 
   function openResolveModal() {
@@ -1343,14 +1667,19 @@
       return;
     }
 
-    // 2) For a fight: roll the Zombie's dice again (cards may have changed it).
+    // 2) For a fight: roll the Zombie's dice (the count is fixed by cards — the
+    // player never sets it). 1 base, +2 if Cornered, +2 per Uuuurrrggghh!.
     if (isFight) {
       const suggest = suggestZombieDice(r);
+      const extra = suggest - 1;
       h += '<div class="rv-panel"><div class="rv-panel-h">🎲 Fight it out — roll the Zombie’s dice</div>';
-      h += '<p class="hint" style="margin:0 0 8px">A card may have changed the fight. Re-roll the Zombie’s dice, then compare the highest to the Hero’s die before you settle it.</p>';
-      h += '<div class="toolbar"><label class="hint">Zombie dice: <select id="rv-ndice">';
-      for (let n = 1; n <= 8; n++) h += '<option value="' + n + '"' + (n === suggest ? " selected" : "") + ">" + n + "</option>";
-      h += '</select></label><button class="btn btn-rust" id="rv-roll">🎲 Roll</button></div>';
+      h += '<p class="hint" style="margin:0 0 8px">' +
+        (extra > 0
+          ? "A card boosts this fight — the Zombie rolls <strong>" + suggest + "</strong> dice (1 base + " + extra + " from cards)."
+          : "The Zombie rolls <strong>1</strong> die — no card is boosting this fight.") +
+        " Roll, then compare the highest to the Hero’s die before you settle it.</p>";
+      h += '<div class="toolbar"><span class="hint">Zombie dice: <strong>' + suggest + '</strong></span>' +
+        '<button class="btn btn-rust" id="rv-roll">🎲 Roll</button></div>';
       h += '<div id="rv-dice-out" class="dice-area"></div></div>';
     }
 
@@ -1378,13 +1707,18 @@
 
     const roll = document.getElementById("rv-roll");
     if (roll) roll.onclick = function () {
-      const n = +document.getElementById("rv-ndice").value;
+      const n = suggestZombieDice(r);   // locked by cards — never a manual pick
       const res = G.bot.roll(n);
+      const bonus = fightResultBonus(r);          // +1 per Braaains! played
+      const finalHi = res.highest + bonus;
       let out = "";
       res.rolls.forEach(function (v) { out += '<div class="die' + (v === res.highest ? " skull" : "") + '">' + v + "</div>"; });
-      out += '<span class="hint" style="margin-left:6px">Zombie’s highest: <strong>' + res.highest + "</strong></span>";
+      out += '<span class="hint" style="margin-left:6px">Zombie’s highest: <strong>' + res.highest + "</strong>";
+      if (bonus) out += ' <strong>+' + bonus + '</strong> (Braaains!) = <strong>' + finalHi + "</strong>";
+      out += " — compare to the Hero’s die.</span>";
       document.getElementById("rv-dice-out").innerHTML = out;
-      r.steps.push({ who: "bot", label: "Zombie rolls " + n + " dice — highest " + res.highest + "." });
+      r.steps.push({ who: "bot", label: "Zombie rolls " + n + " dice — highest " + res.highest +
+        (bonus ? " +" + bonus + " (Braaains!) = " + finalHi : "") + "." });
     };
 
     document.getElementById("rv-play").onclick = function () {
@@ -1426,6 +1760,7 @@
       narration: "",
       timestamp: new Date().toISOString()
     };
+    let killScored = false;
     if (r.context.type === "fight") {
       const heroWon = outcome.indexOf("Heroes") === 0;
       narrationMusic(8000);
@@ -1435,13 +1770,15 @@
         const w = r.context.weapon;
         if (w && w.ranged) LNOE.FX.gunshot(); else LNOE.FX.whack();
         if (voiceOn && line) setTimeout(function () { LNOE.TTS.speak(stripQuotes(line)); }, 450);
+        // Auto-count the kill toward a kill-objective scenario.
+        if (G.scenario.objTracker && G.scenario.objTracker.autoKill) { G.objectiveCount = (G.objectiveCount || 0) + 1; killScored = true; }
       } else {
         // Zombie wins: play the (quieter) zombie sound, then narrate once it ends.
         LNOE.FX.feed(function () { if (voiceOn && line) LNOE.TTS.speak(stripQuotes(line)); });
       }
     }
-    LNOE.Store.saveTurn(entry).then(function () { closeResolveModal(true); })
-      .catch(function () { closeResolveModal(true); });
+    LNOE.Store.saveTurn(entry).then(function () { closeResolveModal(true); if (killScored) checkObjectiveEnd(); })
+      .catch(function () { closeResolveModal(true); if (killScored) checkObjectiveEnd(); });
   }
 
   // Silently record the Zombie turn's summary to the log (no UI needed).
@@ -1565,7 +1902,8 @@
       expansions: G.expansions, scenario: G.scenario,
       players: G.players, buildings: G.buildings || [], spawnAreas: G.spawnAreas || [],
       advanced: G.advanced, startedAt: G.startedAt, introText: G.introText,
-      scenarioLoc: G.scenarioLoc, townsfolk: G.townsfolk, safeHouse: G.safeHouse,
+      scenarioLoc: G.scenarioLoc, objectiveCount: G.objectiveCount, ending: G.ending,
+      cornered: G.cornered,
       sunMax: G.sunMax, sun: G.sun, round: G.round, turnNumber: G.turnNumber,
       playerIndex: G.playerIndex, phase: G.phase,
       zturn: G.zturn, heroStep: G.heroStep, heroDone: G.heroDone,
@@ -1596,7 +1934,8 @@
       players: state.players || [], buildings: state.buildings || [], spawnAreas: state.spawnAreas || [],
       advanced: state.advanced, startedAt: state.startedAt, introText: state.introText,
       scenarioLoc: state.scenarioLoc || { primary: "", safe: "" },
-      townsfolk: state.townsfolk || [], safeHouse: state.safeHouse || "",
+      objectiveCount: state.objectiveCount || 0, ending: state.ending || false,
+      cornered: state.cornered || false,
       sunMax: state.sunMax, sun: state.sun, round: state.round, turnNumber: state.turnNumber,
       playerIndex: state.playerIndex, phase: state.phase,
       zturn: state.zturn || {}, heroStep: state.heroStep || 0, heroDone: state.heroDone || []
