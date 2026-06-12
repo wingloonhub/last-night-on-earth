@@ -278,3 +278,14 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .card-detail strong { color: var(--ink); }
 .card-detail ul { margin: 6px 0 0 0; padding-left: 18px; }
 .card-detail li { font-size: 13px; color: var(--ink); opacity: .9; margin: 2px 0; }
+
+/* ===================== ZOMBIE MOVEMENT GUIDE ===================== */
+.move-guide { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--blood-bright); border-radius: 8px; padding: 10px 12px; margin: 6px 0 4px; }
+.mg-head { font-weight: 700; color: var(--rust); margin-bottom: 6px; }
+.mg-list { margin: 0; padding-left: 20px; }
+.mg-list li { margin: 5px 0; line-height: 1.4; }
+.mg-list li strong { color: var(--ink); }
+.loc-box { background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--rust); border-radius: 8px; padding: 10px 12px; margin: 6px 0; }
+.tf-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 7px; }
+.tf-who { min-width: 110px; }
+.tf-row select { padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }

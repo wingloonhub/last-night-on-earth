@@ -59,6 +59,30 @@
     ]
   };
 
+  // Which carried Hero items COMPLETE each scenario's objective. Used by the
+  // Zombie movement guide to name the Hero carrying an objective item. Names are
+  // matched loosely (case-insensitive, partial) against what a Hero is carrying.
+  LNOE.scenarioObjectiveItems = {
+    "Burn 'Em Out!": ["Gasoline", "Gas", "Torch", "Lighter"],
+    "Escape in the Truck": ["Car Keys", "Keys", "Gasoline", "Gas"],
+    "Blow up the Town!": ["Dynamite", "Explosive", "Explosives", "Gasoline", "Gas"],
+    "Escape in the Plane": ["Plane Part", "Plane Parts", "Fuel", "Gasoline", "Gas"],
+    "Radio for Help": ["Radio Part", "Radio Parts", "Radio"],
+    "Burn It To The Ground!": ["Gasoline", "Gas", "Torch", "Lighter"]
+  };
+  LNOE.objectiveItemsFor = function (name) { return (LNOE.scenarioObjectiveItems[name] || []).slice(); };
+
+  // Other escort scenarios use a simple free-text spot tracker (Save the
+  // Townsfolk has its own structured Townsfolk + safe-house system).
+  LNOE.scenarioLocations = {
+    "Rescue Mission": { noun: "the survivor", primaryLabel: "Where is the survivor?", primaryHint: "e.g. trapped in the Barn", safeLabel: "Safe spot", safeHint: "e.g. the truck" }
+  };
+  LNOE.scenarioLocationCfg = function (name) { return LNOE.scenarioLocations[name] || null; };
+
+  // "Save the Townsfolk" — the named Townsfolk that can appear in the game.
+  LNOE.townsfolkCharacters = ["Principal Gomez", "Doc Brody", "Mr. Hyde", "Jeb", "Deputy Taylor", "Farmer Sty"];
+  LNOE.isTownsfolkScenario = function (name) { return name === "Save the Townsfolk"; };
+
   // Heroes available, grouped by set/expansion. ability = quick reminder text.
   // When an expansion is mixed in, its heroes are ADDED to the base pool.
   LNOE.heroes = {

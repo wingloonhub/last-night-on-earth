@@ -14,6 +14,8 @@
     advanced: false,  // base-game Advanced add-on deck
     buildings: [],   // selected building names (tags)
     spawnAreas: [],  // labelled Zombie Spawning Pits (one die rolled per pit on the Zombie turn)
+    townsfolk: [],   // "Save the Townsfolk": [{ who, building }]
+    safeHouse: "",   // "Save the Townsfolk": the safe building (never a spawn pit)
     players: [{ name: "", hero: "" }, { name: "", hero: "" }]
   };
 
@@ -111,6 +113,24 @@
     html += '<div class="field mt"><span>Zombie Spawning Pits — tap the buildings that have a pit</span>';
     html += '<div id="su-spawns" class="checks mt"></div></div>';
     html += '<p class="hint">Only the buildings you selected above can be tagged as pits. On the Zombie turn (after the fights), the Bot rolls one die per pit to spawn new Zombies.</p>';
+
+    // ---- Save the Townsfolk: Townsfolk + safe house ----
+    const curScenario = scenarios[state.scenarioIndex];
+    if (curScenario && LNOE.isTownsfolkScenario(curScenario.name)) {
+      html += '<hr class="divider">';
+      html += '<div class="field"><span>👥 Townsfolk to rescue</span>';
+      if (!state.buildings.length) {
+        html += '<p class="hint">Select buildings above first, then place the Townsfolk in them.</p>';
+      } else {
+        if (!state.townsfolk.length) state.townsfolk = [{ who: "", building: "" }];
+        html += '<label class="hint">How many Townsfolk? <select id="su-tf-count">';
+        for (let n = 1; n <= 6; n++) html += '<option value="' + n + '"' + (state.townsfolk.length === n ? " selected" : "") + ">" + n + "</option>";
+        html += "</select></label>";
+        html += '<div id="su-townsfolk" class="mt"></div>';
+        html += '<label class="field mt"><span>🏠 Safe house — Heroes carry Townsfolk here (it can NEVER be a Zombie spawning pit)</span><select id="su-safehouse"></select></label>';
+      }
+      html += "</div>";
+    }
     html += "</div>";
 
     // ---- Step C: players ----
@@ -194,6 +214,46 @@
     });
   }
 
+  function renderTownsfolk() {
+    const el = document.getElementById("su-townsfolk");
+    if (!el) return;
+    const chars = LNOE.townsfolkCharacters || [];
+    el.innerHTML = state.townsfolk.map(function (tf, i) {
+      const takenWho = state.townsfolk.filter(function (t, j) { return j !== i; }).map(function (t) { return t.who; });
+      let h = '<div class="row mt" style="align-items:flex-end;gap:8px">';
+      h += '<label class="field" style="margin:0;flex:2"><span class="mini">Townsfolk</span><select class="su-tf-who" data-i="' + i + '"><option value="">— choose —</option>';
+      chars.forEach(function (c) {
+        const dis = takenWho.indexOf(c) > -1;
+        h += '<option value="' + esc(c) + '"' + (tf.who === c ? " selected" : "") + (dis ? " disabled" : "") + ">" + esc(c) + (dis ? " — taken" : "") + "</option>";
+      });
+      h += "</select></label>";
+      h += '<label class="field" style="margin:0;flex:2"><span class="mini">Starts in building</span><select class="su-tf-bld" data-i="' + i + '"><option value="">— choose —</option>';
+      state.buildings.forEach(function (b) { h += '<option value="' + esc(b) + '"' + (tf.building === b ? " selected" : "") + ">" + esc(b) + "</option>"; });
+      h += "</select></label></div>";
+      return h;
+    }).join("");
+    el.querySelectorAll(".su-tf-who").forEach(function (s) {
+      s.onchange = function () { state.townsfolk[+s.dataset.i].who = this.value; renderTownsfolk(); };
+    });
+    el.querySelectorAll(".su-tf-bld").forEach(function (s) {
+      s.onchange = function () { state.townsfolk[+s.dataset.i].building = this.value; };
+    });
+  }
+
+  function renderSafeHouse() {
+    const el = document.getElementById("su-safehouse");
+    if (!el) return;
+    if (state.buildings.indexOf(state.safeHouse) === -1) state.safeHouse = "";
+    el.innerHTML = '<option value="">— choose —</option>' + state.buildings.map(function (b) {
+      return '<option value="' + esc(b) + '"' + (state.safeHouse === b ? " selected" : "") + ">" + esc(b) + "</option>";
+    }).join("");
+    el.onchange = function () {
+      state.safeHouse = this.value;
+      state.spawnAreas = state.spawnAreas.filter(function (a) { return a !== state.safeHouse; }); // safe house is never a pit
+      renderSpawns();
+    };
+  }
+
   function renderSpawns() {
     const el = document.getElementById("su-spawns");
     if (!el) return;
@@ -201,9 +261,9 @@
       el.innerHTML = '<span class="hint">Select buildings on your board above first, then tap which ones have a spawning pit.</span>';
       return;
     }
-    // A pit can only be a building that is still selected — drop any stragglers.
-    state.spawnAreas = state.spawnAreas.filter(function (a) { return state.buildings.indexOf(a) > -1; });
-    el.innerHTML = state.buildings.map(function (b) {
+    // A pit can only be a SELECTED building that is NOT the safe house.
+    state.spawnAreas = state.spawnAreas.filter(function (a) { return state.buildings.indexOf(a) > -1 && a !== state.safeHouse; });
+    el.innerHTML = state.buildings.filter(function (b) { return b !== state.safeHouse; }).map(function (b) {
       const on = state.spawnAreas.indexOf(b) > -1;
       return '<label class="chk' + (on ? " chk-on" : "") + '"><input type="checkbox" class="su-spawn" value="' +
         esc(b) + '"' + (on ? " checked" : "") + "> ☠ " + esc(b) + "</label>";
@@ -224,6 +284,7 @@
       state.scenarioIndex = 0;
       state.buildings = [];   // different board — clear the building tags
       state.spawnAreas = [];  // and clear the old board's spawning pits
+      state.townsfolk = []; state.safeHouse = "";  // and the old board's Townsfolk
       if (state.baseSet !== "base") state.advanced = false;  // Advanced is base-only
       // drop heroes no longer in the pool
       const pool = heroPool().map(function (h) { return h.name; });
@@ -240,8 +301,7 @@
     const sc = document.getElementById("su-scenario");
     if (sc) sc.onchange = function () {
       state.scenarioIndex = +this.value;
-      const obj = LNOE.scenariosFor(state.baseSet, state.expansions)[state.scenarioIndex];
-      document.getElementById("su-objective").textContent = obj ? obj.objective : "";
+      render();   // re-render so the Townsfolk section appears/disappears with the scenario
     };
     const adv = document.getElementById("su-advanced");
     if (adv) adv.onchange = function () { state.advanced = this.checked; render(); };
@@ -253,6 +313,15 @@
       if (v && state.buildings.indexOf(v) === -1) { state.buildings.push(v); inp.value = ""; renderBuildings(); }
     };
     renderSpawns();
+    renderTownsfolk();
+    renderSafeHouse();
+    const tfCount = document.getElementById("su-tf-count");
+    if (tfCount) tfCount.onchange = function () {
+      const n = +this.value;
+      while (state.townsfolk.length < n) state.townsfolk.push({ who: "", building: "" });
+      while (state.townsfolk.length > n) state.townsfolk.pop();
+      renderTownsfolk();
+    };
     document.getElementById("su-add").onclick = function () {
       state.players.push({ name: "", hero: "" }); renderPlayers();
     };
@@ -275,6 +344,10 @@
       }),
       buildings: state.buildings.slice(),
       spawnAreas: state.spawnAreas.slice(),
+      townsfolk: LNOE.isTownsfolkScenario((scenarios[state.scenarioIndex] || {}).name)
+        ? state.townsfolk.filter(function (t) { return t.who && t.building; }).map(function (t) { return { who: t.who, building: t.building }; })
+        : [],
+      safeHouse: state.safeHouse || "",
       advanced: !!(state.advanced && state.baseSet === "base"),
       startedAt: new Date().toISOString()
     };

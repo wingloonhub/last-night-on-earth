@@ -67,6 +67,13 @@
   function start(gameState) {
     G = gameState;
     G.saveId = "g" + new Date().getTime();   // unique id for this game's auto-save
+    G.scenarioLoc = { primary: "", safe: "" };  // other escort scenarios: free-text spots
+    // Save the Townsfolk: each Townsfolk's live status — in their building, with
+    // a Hero, or safe (rescued). safeHouse is never a Zombie spawn area.
+    G.townsfolk = (G.townsfolk || []).map(function (t) {
+      return { who: t.who, building: t.building, status: "building", withHero: "" };
+    });
+    G.safeHouse = G.safeHouse || "";
     G.bot = new LNOE.Bot(G.baseSet, G.advanced);
     // The Zombie player holds cards from the start, so the Bot can intervene
     // even during the very first Hero turn.
@@ -231,6 +238,136 @@
   }
   function heroEventDatalist() {
     return '<datalist id="hero-events">' + heroEventOptions() + "</datalist>";
+  }
+
+  // Heroes (alive) currently carrying an item that completes the scenario's
+  // objective — used to name them in the Zombie movement guide.
+  function objectiveCarriers() {
+    const objs = (LNOE.objectiveItemsFor ? LNOE.objectiveItemsFor(G.scenario.name) : []).map(function (s) { return s.toLowerCase(); });
+    if (!objs.length) return [];
+    const out = [];
+    aliveIndices().forEach(function (i) {
+      const p = G.players[i];
+      const matched = (p.items || []).filter(function (it) {
+        const t = it.toLowerCase();
+        return objs.some(function (o) { return t.indexOf(o) > -1 || o.indexOf(t) > -1; });
+      });
+      if (matched.length) out.push({ p: p, items: matched });
+    });
+    return out;
+  }
+  function heroName(p) { return p.hero + " (" + p.name + ")"; }
+
+  // "Save the Townsfolk": live tracker — where each Townsfolk is now.
+  function townsfolkTracker() {
+    const tf = G.townsfolk || [];
+    let h = '<div class="loc-box" id="tf-tracker"><div class="mg-head">👥 Townsfolk — set where each one is now' +
+      (G.safeHouse ? " · 🏠 safe house: <strong>" + esc(G.safeHouse) + "</strong>" : "") + "</div>";
+    if (!tf.length) {
+      h += '<p class="hint">No Townsfolk were set up for this game (add them in Setup next time).</p></div>';
+      return h;
+    }
+    const heroes = aliveIndices().map(function (i) { return G.players[i].hero; });
+    tf.forEach(function (t, i) {
+      h += '<div class="tf-row">';
+      h += '<span class="tf-who"><strong>' + esc(t.who) + "</strong></span>";
+      h += '<select class="tf-status" data-i="' + i + '">';
+      h += '<option value="building"' + (t.status === "building" ? " selected" : "") + ">Still in " + esc(t.building) + "</option>";
+      h += '<option value="hero"' + (t.status === "hero" ? " selected" : "") + ">With a Hero…</option>";
+      h += '<option value="safe"' + (t.status === "safe" ? " selected" : "") + ">In the safe house (saved ✓)</option>";
+      h += "</select>";
+      if (t.status === "hero") {
+        h += '<select class="tf-hero" data-i="' + i + '"><option value="">— which Hero? —</option>';
+        heroes.forEach(function (hn) { h += '<option value="' + esc(hn) + '"' + (t.withHero === hn ? " selected" : "") + ">" + esc(hn) + "</option>"; });
+        h += "</select>";
+      }
+      h += "</div>";
+    });
+    h += "</div>";
+    return h;
+  }
+  function refreshTownsfolk() {
+    const el = document.getElementById("tf-tracker");
+    if (el) el.outerHTML = townsfolkTracker();
+    wireTownsfolk();
+    const g = document.querySelector(".move-guide");
+    if (g) g.outerHTML = zombieMovementGuide();
+    autoSave();
+  }
+  function wireTownsfolk() {
+    document.querySelectorAll(".tf-status").forEach(function (s) {
+      s.onchange = function () {
+        const i = +s.dataset.i;
+        G.townsfolk[i].status = this.value;
+        if (this.value !== "hero") G.townsfolk[i].withHero = "";
+        refreshTownsfolk();
+      };
+    });
+    document.querySelectorAll(".tf-hero").forEach(function (s) {
+      s.onchange = function () { G.townsfolk[+s.dataset.i].withHero = this.value; refreshTownsfolk(); };
+    });
+  }
+
+  // The Zombie movement priority guide shown in the Move step. Priorities 2–5
+  // name the actual Heroes (not the word "Hero"), since the app has that info.
+  function zombieMovementGuide() {
+    const carriers = objectiveCarriers();
+    const alive = aliveIndices().map(function (i) { return G.players[i]; });
+    const unarmed = alive.filter(function (p) { return carriedWeapons(p).length === 0; });
+    const nm = function (p) { return "<strong>" + esc(p.hero) + "</strong>"; };
+    const names = function (arr) { return arr.length ? arr.map(nm).join(", ") : "the nearest Hero"; };
+
+    const lcfg = LNOE.scenarioLocationCfg ? LNOE.scenarioLocationCfg(G.scenario.name) : null;
+    const loc = G.scenarioLoc || { primary: "", safe: "" };
+
+    let h = '<div class="move-guide"><div class="mg-head">🧠 Move each Zombie — use the FIRST that fits:</div><ol class="mg-list">';
+    // 1 — general rule (no name)
+    h += "<li><strong>Fight a Hero in the same space</strong> — it fights instead of moving (step 4).</li>";
+    // 2 — protect objective
+    h += "<li><strong>Protect the objective</strong>";
+    if (LNOE.isTownsfolkScenario(G.scenario.name)) {
+      // First chase Townsfolk being escorted by a Hero; else go to the building
+      // they're still in. Safe (rescued) Townsfolk are ignored.
+      const tf = (G.townsfolk || []).filter(function (t) { return t.status !== "safe"; });
+      const escorted = tf.filter(function (t) { return t.status === "hero" && t.withHero; });
+      const inBld = tf.filter(function (t) { return t.status === "building"; });
+      if (escorted.length) {
+        h += " — go after " + escorted.map(function (t) { return "<strong>" + esc(t.withHero) + "</strong> (escorting " + esc(t.who) + ")"; }).join(", ") + ".";
+      } else if (inBld.length) {
+        h += " — get to " + inBld.map(function (t) { return "<strong>" + esc(t.building) + "</strong> (" + esc(t.who) + ")"; }).join(", ") + " before the Heroes do.";
+      } else if (!tf.length && (G.townsfolk || []).length) {
+        h += " — all Townsfolk are safe; chase the Heroes instead.";
+      } else {
+        h += " — set where the Townsfolk are above.";
+      }
+    } else if (lcfg) {
+      // Other escort scenario (free-text): swarm the people, block the route.
+      if (loc.primary || loc.safe) {
+        h += " — swarm " + esc(lcfg.noun) + (loc.primary ? " at <strong>" + esc(loc.primary) + "</strong>" : "") +
+          (loc.safe ? " and block the way to <strong>" + esc(loc.safe) + "</strong>" : "") + ".";
+      } else {
+        h += " — set the " + esc(lcfg.noun) + " and safe-house spots above, then swarm them.";
+      }
+    } else if (carriers.length) {
+      h += " — stop " + names(carriers.map(function (c) { return c.p; })) + " from finishing it.";
+    } else {
+      h += ".";
+    }
+    h += "</li>";
+    // 3 — carrier (only if someone carries it)
+    if (carriers.length) {
+      h += "<li><strong>Chase the item carrier</strong> — " +
+        carriers.map(function (c) { return nm(c.p) + " <span class='hint'>(" + esc(c.items.join(", ")) + ")</span>"; }).join(", ") + "</li>";
+    }
+    // 4 — nearest (list the candidate Heroes by name)
+    h += "<li><strong>Go to the closest</strong> — " + names(alive) + "</li>";
+    // 5 — weakest (name them)
+    if (unarmed.length) h += "<li><strong>Hit the weakest</strong> — " + names(unarmed) + " <span class='hint'>(no weapon)</span></li>";
+    else h += "<li><strong>Hit the weakest</strong> — " + names(alive) + " <span class='hint'>(go for the most wounded)</span></li>";
+    // 6 — closest building (no Hero)
+    h += "<li><strong>Go to the closest building.</strong></li>";
+    h += "</ol></div>";
+    return h;
   }
 
   // Find a Hero card object by name across the deck(s) in play.
@@ -732,8 +869,19 @@
 
     // 3 · Movement
     h += '<div class="card"><h3>3 · Move the Zombies</h3>';
-    h += '<p class="section-help">Move every Zombie 1 space toward the nearest Hero (or as a card says). Note anything important below — it’s saved to the turn log.</p>';
-    h += '<label class="field">Movement notes (optional)<input type="text" id="z-move" placeholder="e.g. moved 3 zombies toward the barn; Shamble rushed one into the house"></label>';
+    h += '<p class="section-help">Move every Zombie 1 space (or as a card says), following the priority below. Note anything important — it’s saved to the turn log.</p>';
+    const _lcfg = LNOE.scenarioLocationCfg ? LNOE.scenarioLocationCfg(G.scenario.name) : null;
+    if (LNOE.isTownsfolkScenario(G.scenario.name)) {
+      h += townsfolkTracker();
+    } else if (_lcfg) {
+      G.scenarioLoc = G.scenarioLoc || { primary: "", safe: "" };
+      h += '<div class="loc-box"><div class="mg-head">📍 Rescue tracking — the guide below uses these:</div>';
+      h += '<label class="field" style="margin:0 0 8px">' + esc(_lcfg.primaryLabel) +
+        '<input type="text" id="loc-primary" value="' + esc(G.scenarioLoc.primary || "") + '" placeholder="' + esc(_lcfg.primaryHint) + '"></label>';
+      h += '<label class="field" style="margin:0">' + esc(_lcfg.safeLabel) +
+        '<input type="text" id="loc-safe" value="' + esc(G.scenarioLoc.safe || "") + '" placeholder="' + esc(_lcfg.safeHint) + '"></label></div>';
+    }
+    h += zombieMovementGuide();
     h += "</div>";
 
     // 4 · Fight + dice
@@ -878,7 +1026,18 @@
       html += '<span class="hint" style="margin-left:6px">Highest: <strong>' + r.highest + "</strong> — compare to the Hero’s highest die.</span>";
       document.getElementById("z-dice-out").innerHTML = html;
     };
-    document.getElementById("z-move").oninput = function () { G.zturn.movement = this.value; };
+    // Save the Townsfolk: wire the live status tracker.
+    wireTownsfolk();
+    // Escort-scenario location inputs: update state and refresh the guide live.
+    function refreshMoveGuide() {
+      const g = document.querySelector(".move-guide");
+      if (g) g.outerHTML = zombieMovementGuide();
+    }
+    const locP = document.getElementById("loc-primary");
+    if (locP) locP.oninput = function () { G.scenarioLoc = G.scenarioLoc || {}; G.scenarioLoc.primary = this.value; refreshMoveGuide(); autoSave(); };
+    const locS = document.getElementById("loc-safe");
+    if (locS) locS.oninput = function () { G.scenarioLoc = G.scenarioLoc || {}; G.scenarioLoc.safe = this.value; refreshMoveGuide(); autoSave(); };
+
     // "Hero in this fight" + "Fighting with" — the chosen weapon sets the win sound.
     G.players.forEach(normalizeInventory);
     const zfHero = document.getElementById("zf-hero");
@@ -976,7 +1135,7 @@
   // Mid-game, a new pit can only be tagged on a building that is on the board
   // and not already a pit — same rule as Setup.
   function spawnAddControl() {
-    const avail = ((G.buildings) || []).filter(function (b) { return (G.spawnAreas || []).indexOf(b) === -1; });
+    const avail = ((G.buildings) || []).filter(function (b) { return (G.spawnAreas || []).indexOf(b) === -1 && b !== G.safeHouse; });
     if (!avail.length) {
       return '<p class="hint">Every building on your board is already a pit (or none were selected — add buildings in Setup).</p>';
     }
@@ -1406,6 +1565,7 @@
       expansions: G.expansions, scenario: G.scenario,
       players: G.players, buildings: G.buildings || [], spawnAreas: G.spawnAreas || [],
       advanced: G.advanced, startedAt: G.startedAt, introText: G.introText,
+      scenarioLoc: G.scenarioLoc, townsfolk: G.townsfolk, safeHouse: G.safeHouse,
       sunMax: G.sunMax, sun: G.sun, round: G.round, turnNumber: G.turnNumber,
       playerIndex: G.playerIndex, phase: G.phase,
       zturn: G.zturn, heroStep: G.heroStep, heroDone: G.heroDone,
@@ -1435,6 +1595,8 @@
       expansions: state.expansions || [], scenario: state.scenario,
       players: state.players || [], buildings: state.buildings || [], spawnAreas: state.spawnAreas || [],
       advanced: state.advanced, startedAt: state.startedAt, introText: state.introText,
+      scenarioLoc: state.scenarioLoc || { primary: "", safe: "" },
+      townsfolk: state.townsfolk || [], safeHouse: state.safeHouse || "",
       sunMax: state.sunMax, sun: state.sun, round: state.round, turnNumber: state.turnNumber,
       playerIndex: state.playerIndex, phase: state.phase,
       zturn: state.zturn || {}, heroStep: state.heroStep || 0, heroDone: state.heroDone || []
