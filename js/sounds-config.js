@@ -21,20 +21,20 @@
 window.LNOE = window.LNOE || {};
 window.LNOE.soundFiles = {
   music: "",                            // single looping track (leave blank if using levels below)
-  zombieWin: "asounds/Zombie Groan.mp3", // played when a Zombie wins a fight (quieter)
+  zombieWin: "sounds/Zombie Groan.mp3", // played when a Zombie wins a fight (quieter)
   heroHit: "",                           // played when a Hero wins with a HAND weapon (whack)
-  heroShoot: "asounds/Gun sound.mp3",    // played when a Hero wins with a RANGED weapon (gunshot)
-  heroShootMiss: "asounds/Gun missed.mp3", // played when a ranged shot MISSES (misfire)
-  groan: "asounds/Zombie Groan.mp3",      // generic zombie groan (card reveals, after spawn, narration)
-  heroWinSong: "asounds/End Song- Hero Win.mp3", // victory song when the Heroes win the game
-  introSong: "asounds/Intro Song.mp3"     // plays on the opening page when a new game starts
+  heroShoot: "sounds/Gun sound.mp3",    // played when a Hero wins with a RANGED weapon (gunshot)
+  heroShootMiss: "sounds/Gun missed.mp3", // played when a ranged shot MISSES (misfire)
+  groan: "sounds/Zombie Groan.mp3",      // generic zombie groan (card reveals, after spawn, narration)
+  heroWinSong: "sounds/End Song- Hero Win.mp3", // victory song when the Heroes win the game
+  introSong: "sounds/Intro Song.mp3"     // plays on the opening page when a new game starts
 };
 
 // Background music that escalates with the Sun Track. The game splits the
 // night into this many stages and crossfades up the list as dawn approaches
 // (Level 3 plays in the last rounds). Leave empty to use the generated music.
 window.LNOE.musicLevels = [
-  "asounds/level1.mp3",  // early night
-  "asounds/level2.mp3",  // building tension
-  "asounds/level3.mp3"   // final rounds before dawn
+  "sounds/level1.mp3",  // early night
+  "sounds/level2.mp3",  // building tension
+  "sounds/level3.mp3"   // final rounds before dawn
 ];
