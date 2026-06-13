@@ -5,6 +5,11 @@
 (function () {
   const LNOE = (window.LNOE = window.LNOE || {});
   const panel = function () { return document.getElementById("tab-start"); };
+  // Jump back to the top so the turn banner is in view on every turn change.
+  function scrollTop() {
+    try { window.scrollTo(0, 0); } catch (e) {}
+    try { document.documentElement.scrollTop = 0; document.body.scrollTop = 0; } catch (e) {}
+  }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
@@ -86,9 +91,16 @@
         "Those Zombies can still move and fight normally this turn."];
     }
     if (n.indexOf("too many") > -1) {
-      return ["🎲 The Zombie rolled a " + r + ".",
-        "Add " + r + " more Zombie" + sp + " on top of the spawn above.",
-        "If the pool runs out, take them from anywhere on the board."];
+      const steps = ["🎲 The Zombie rolled a " + r + " — add " + r + " more Zombie" + sp + " on top of the spawn above."];
+      if (p.placement && p.placement.length) {
+        p.placement.forEach(function (pl) {
+          steps.push("➕ " + pl.count + " at " + pl.area);
+        });
+      } else {
+        steps.push("No Spawning Pits tagged — place the " + r + " Zombie" + sp + " as the scenario directs.");
+      }
+      steps.push("If the pool runs out, take them from anywhere on the board.");
+      return steps;
     }
     if (n.indexOf("surprise attack") > -1) {
       if (!p.hero) {
@@ -191,6 +203,7 @@
     G.scenarioLoc = { primary: "", safe: "" };  // other escort scenarios: free-text spots
     G.objectiveCount = 0;   // the scenario's objective counter (kills / saved / etc.)
     G.ending = false;
+    G.zombieInPlay = [];    // Zombie cards that "stay in play" until cancelled
     // Rescue Mission: build runtime Townsfolk state (each starts in their building).
     if (G.rescue) {
       G.rescue.townsfolk = (G.rescue.townsfolk || []).map(function (t) {
@@ -213,6 +226,7 @@
     G.round = 1;
     G.turnNumber = 0;        // zombie turns completed
     G.playerIndex = 0;
+    G.heroTurnsTaken = [];   // player indices who have taken their turn THIS round
     G.phase = "hero";        // 'hero' | 'zombie'
     G.players.forEach(function (p) { p.dead = false; });  // track who's alive until the end
     G.introText = LNOE.scenarioIntro(G.scenario.name, G.baseSetName, G.scenario.objective) +
@@ -224,15 +238,12 @@
     newZTurn();
     resetHeroSteps();
     LNOE.switchTab("start");
-    // The Start button click is a user gesture, so audio is allowed now.
-    if (musicOn) LNOE.FX.startMusic(musicStage());   // continuous background music
     renderIntro();   // dedicated opening page first — the player listens or skips
   }
 
-  // Cinematic opening: dissonant stinger over the music, scary-voice story.
+  // Cinematic opening: dissonant stinger over the intro song, scary-voice story.
   function playIntro() {
     if (!G || !G.introText) return;
-    if (musicOn) LNOE.FX.startMusic(musicStage());
     LNOE.FX.stinger();
     const story = stripQuotes(G.introText);
     hordeSfx(story);
@@ -259,19 +270,25 @@
     }).join("");
     h += '<div class="narration voice-on" id="g-intro">' + paras + "</div>";
     h += '<div class="row mt">';
-    h += '<button class="btn btn-rust" id="g-intro-play">▶ Listen to the introduction</button>';
+    h += '<button class="btn btn-rust" id="g-intro-play">🔁 Replay the introduction</button>';
     h += '<button class="btn btn-ghost" id="g-intro-stop">⏹ Stop</button>';
     h += "</div>";
     h += '<div class="row mt"><button class="btn btn-primary btn-lg" id="g-intro-start">Skip / Start the game →</button></div>';
-    h += '<p class="hint mt">Tap “Listen” to hear the opening read aloud, or start straight away. You can replay it from the Scary Voice button later.</p>';
+    h += '<p class="hint mt">The opening plays automatically. Tap Replay to hear it again, or start straight away.</p>';
     h += "</div>";
     panel().innerHTML = h;
     wireHeader();
+    // Opening theme + narration play automatically (a Start-Game click is a user
+    // gesture, so audio is allowed here).
+    if (musicOn) LNOE.FX.introSong();
+    if (voiceOn) setTimeout(playIntro, 500);   // auto-read the opening
     document.getElementById("g-intro-play").onclick = playIntro;
     document.getElementById("g-intro-stop").onclick = stopIntro;
     document.getElementById("g-intro-start").onclick = function () {
       stopIntro();
-      renderHero();   // begin the first Hero turn
+      LNOE.FX.stopMusic();                                  // stop the intro song
+      if (musicOn) LNOE.FX.startMusic(musicStage());        // hand over to the night music
+      beginNextHeroTurn();   // players choose who takes the first turn of round 1
     };
     autoSave();
   }
@@ -470,6 +487,37 @@
     if (rescueSaved() >= (LNOE.RESCUE_SAVE_TO_WIN || 3)) { G.ending = true; showEnding("Heroes"); return true; }
     return false;
   }
+  /* ----------------- ZOMBIE CARDS STILL IN PLAY -------------------- */
+  function addZombieInPlay(pl) {
+    if (!pl || !pl.remains) return;
+    G.zombieInPlay = G.zombieInPlay || [];
+    let where = "";
+    if (/heavy rain/i.test(pl.name)) where = "all Heroes outdoors";   // global, not a building
+    else if (pl.target) where = "on the " + pl.target;
+    G.zombieInPlay.push({ name: pl.name, where: where, turn: G.turnNumber });
+  }
+  function inPlayCard() {
+    const list = (G && G.zombieInPlay) || [];
+    if (!list.length) return "";
+    let h = '<div class="card"><h3>🩸 Zombie cards in play</h3>';
+    h += '<p class="section-help">These Zombie cards stay in effect until they’re removed. A Hero can cancel one with the right card (e.g. “At Last…”). Tap ✗ once a card is cancelled or no longer applies.</p>';
+    list.forEach(function (c, i) {
+      h += '<div class="player-status"><span class="ps-name">🩸 ' + esc(c.name) +
+        (c.where ? ' <span class="hint">— ' + esc(c.where) + "</span>" : "") + "</span>";
+      h += '<button class="btn btn-sm inplay-x" data-i="' + i + '">✗ Cancel / remove</button></div>';
+    });
+    h += "</div>";
+    return h;
+  }
+  function wireInPlayCard() {
+    (panel().querySelectorAll ? panel().querySelectorAll(".inplay-x") : []).forEach(function (b) {
+      b.onclick = function () {
+        (G.zombieInPlay || []).splice(+b.dataset.i, 1);
+        autoSave();
+        if (G.phase === "zombie") renderZombie(); else renderHero();
+      };
+    });
+  }
   function objectiveCard() {
     if (G.rescue) return rescueCard();
     const ot = G.scenario.objTracker;
@@ -479,7 +527,7 @@
     let h = '<div class="card" id="obj-card"><h3>🎯 Objective</h3>';
     h += '<div class="obj-kill"><span>' + esc(ot.emoji) + " " + esc(ot.label) + ': <strong class="obj-big">' + n + "</strong> / " + ot.target + "</span> ";
     h += '<button class="btn btn-sm" id="obj-minus">−</button> <button class="btn btn-sm btn-green" id="obj-plus">+1</button>';
-    if (ot.autoKill) h += '<span class="hint" style="flex-basis:100%;margin-top:2px">Counts up automatically when a Zombie is killed (a won fight or a shot). Use − to fix a miscount.</span>';
+    if (ot.autoKill) h += '<span class="hint" style="flex-basis:100%;margin-top:2px">Counts up automatically only when a Zombie is KILLED (a kill in a fight or a shot) — fending one off does not count. Use − to fix a miscount.</span>';
     if (done) {
       h += '<div class="obj-done mt">✅ ' + esc(ot.label) + " reached " + ot.target + " — the " +
         (ot.win === "Heroes" ? "Heroes" : "Zombies") + " win! Jumping to the ending…</div>";
@@ -802,6 +850,9 @@
   function cardNoBuilding(text) { return /not .{0,14}building|outside (of )?a building|non-?building|may not .{0,20}building/i.test(text); }
   // Does a card target a board LOCATION at all — a building, space or area?
   function cardNeedsTarget(text) {
+    // Cards that affect ALL Heroes (e.g. Heavy Rain — everyone outdoors) are a
+    // global effect, NOT a single targeted building/area.
+    if (/\ball heroes\b/i.test(text)) return false;
     return cardNeedsBuilding(text) || cardNoBuilding(text) ||
       /\b(random|any) (space|area|location)\b/i.test(text);
   }
@@ -938,7 +989,9 @@
       if (done[c.uid]) continue;
       done[c.uid] = true;
       G.zturn.played.push(c.name);
-      played.push(playDrawCard(c));
+      const pl = playDrawCard(c);
+      played.push(pl);
+      addZombieInPlay(pl);   // track "stays in play" cards
       // "Oh the Horror!": the Zombie draws 3 more cards. Any of those that are
       // also draw-phase (and have an effect) get played and shown this turn too.
       if (/horror/i.test(c.name)) {
@@ -964,7 +1017,9 @@
       const c = queue.shift();
       if (done[c.uid]) continue;
       done[c.uid] = true;
-      played.push(playDrawCard(c));
+      const pl = playDrawCard(c);
+      played.push(pl);
+      addZombieInPlay(pl);
       if (/horror/i.test(c.name)) {
         for (let i = 0; i < 3; i++) { G.bot.draw(); }
         G.bot.hand.forEach(function (hc) {
@@ -1069,6 +1124,16 @@
   // Play the SPAWN-phase cards the Zombie is holding (There's Too Many,
   // Relentless Advance). Pre-roll their dice and bake in the result. Called
   // once, when the player spawns Zombies in step 5.
+  // Spread `count` Zombies randomly across the labelled Spawning Pits and report
+  // how many go to each — same as the main Spawn step does.
+  function distributeAcrossPits(count) {
+    const pits = (G.spawnAreas && G.spawnAreas.length) ? G.spawnAreas.slice() : [];
+    if (!pits.length) return [];
+    const tally = {};
+    pits.forEach(function (p) { tally[p] = 0; });
+    for (let i = 0; i < count; i++) { tally[pits[Math.floor(Math.random() * pits.length)]]++; }
+    return pits.map(function (p) { return { area: p, count: tally[p] }; }).filter(function (x) { return x.count > 0; });
+  }
   function buildSpawnCards() {
     const out = [];
     G.bot.hand.filter(function (c) { return cardPhase(c) === "spawn"; }).forEach(function (c) {
@@ -1077,6 +1142,9 @@
       const roll = cardNeedsRoll(c.text) ? (1 + Math.floor(Math.random() * 6)) : 0;
       const narr = titledNarration(c.name, LNOE.cardNarration(c.name));
       const pl = { name: c.name, simple: c.simple, text: c.text, remains: c.remains, narration: narr, roll: roll };
+      // "There's Too Many!" — distribute its extra Zombies across the pits and
+      // tell the player exactly which building each one goes to.
+      if (/too many/i.test(c.name) && roll) pl.placement = distributeAcrossPits(roll);
       pl.steps = zombieCardSteps(pl);
       out.push(pl);
     });
@@ -1147,9 +1215,10 @@
     const p = G.players[G.playerIndex];
     let h = header();
     h += objectiveCard();
+    h += inPlayCard();
 
     const _alive = aliveIndices();
-    const _pos = _alive.indexOf(G.playerIndex) + 1;
+    const _pos = (G.heroTurnsTaken || []).length + 1;   // how many Heroes have gone this round + this one
     h += '<div class="turn-banner hero-turn">';
     h += '<div class="phase">🧍 HERO TURN · Hero ' + _pos + " of " + _alive.length + "</div>";
     h += '<div class="who">▶ Now playing: ' + esc(p.hero) + ' <span style="color:var(--muted);font-size:15px">— ' + esc(p.name) + "</span></div>";
@@ -1202,9 +1271,11 @@
           h += '<div id="hf-dice-out" class="dice-area"></div>';
           h += '<div class="mt"><label class="hint">🗡 Fighting with: ' + fightWeaponSelect("hf-weapon", p) + "</label>";
           h += '<span class="hint" style="display:block;margin-top:4px">Pick which carried weapon you used. Hand weapon → a heavy whack on a win; ranged weapon → a gunshot. Manage what each Hero carries in the Heroes list below.</span></div>';
+          h += '<div class="loc-box mt"><strong>🎲 Heroes roll 2 Fight Dice.</strong> The Zombie is <strong>KILLED</strong> only if the Hero rolls higher than the Zombie <em>and</em> rolled <strong>doubles</strong> on their Fight Dice. A higher roll with no doubles just <strong>fends it off</strong> (the Zombie survives — not a kill).</div>';
           h += '<div class="row mt"><span style="flex-basis:100%" class="hint">State the result — the Zombie may then intervene with a card:</span>';
-          h += '<button class="btn btn-green" id="hf-won">🧍 Hero WON the fight</button>';
-          h += '<button class="btn btn-primary" id="hf-lost">☠ Hero LOST the fight</button></div></div>';
+          h += '<button class="btn btn-green" id="hf-killed">🎯 Zombie killed</button>';
+          h += '<button class="btn btn-rust" id="hf-fended">🛡 Zombie fended off</button>';
+          h += '<button class="btn btn-primary" id="hf-lost">☠ Hero loses</button></div></div>';
         }
         h += '<div class="step-btns"><button class="btn btn-green" data-act="done">✓ Did this</button>' +
           '<button class="btn" data-act="skip">Skip</button></div>';
@@ -1230,9 +1301,12 @@
     h += rosterCard();
 
     h += '<div class="card center">';
-    const last = aliveIndices().filter(function (i) { return i > G.playerIndex; }).length === 0;
+    // Last Hero this round = no other alive Hero is still waiting to go.
+    const last = aliveIndices().filter(function (i) {
+      return i !== G.playerIndex && (G.heroTurnsTaken || []).indexOf(i) === -1;
+    }).length === 0;
     h += '<button class="btn btn-primary btn-lg" id="g-endhero">' +
-      (last ? "All Heroes done → Zombies awaken ☠" : "End " + esc(p.name) + "’s turn ▶") + "</button>";
+      (last ? "All Heroes done → Zombies awaken ☠" : "End " + esc(p.name) + "’s turn → choose next ▶") + "</button>";
     h += "</div>";
 
     panel().innerHTML = h;
@@ -1279,16 +1353,19 @@
     const hsKill = document.getElementById("hs-kill");
     if (hsKill) hsKill.onclick = function () {
       narrationMusic(6000);
-      LNOE.FX.gunshot();
       const out = document.getElementById("hs-out");
       if (out) out.innerHTML = '<div class="csimple">💥 Hit! The Zombie drops — remove it from the board.</div>';
-      if (voiceOn) setTimeout(function () { LNOE.TTS.speak("The shot rings out across the dark — the dead thing drops where it stood."); }, 400);
       recordKill();
+      // Let the gunshot finish FIRST, then read the narration.
+      LNOE.FX.gunshot(function () {
+        if (voiceOn) LNOE.TTS.speak("The shot rings out across the dark — the dead thing drops where it stood.");
+      });
     };
     const hsMiss = document.getElementById("hs-miss");
     if (hsMiss) hsMiss.onclick = function () {
+      LNOE.FX.gunMiss();   // misfire sound
       const out = document.getElementById("hs-out");
-      if (out) out.innerHTML = '<span class="hint">Missed — no kill this time.</span>';
+      if (out) out.innerHTML = '<span class="hint">🔇 Misfire — the shot missed. No kill this time.</span>';
     };
 
     const hfRoll = document.getElementById("hf-roll");
@@ -1300,15 +1377,21 @@
       html += '<span class="hint" style="margin-left:6px">Zombie’s highest: <strong>' + r.highest + "</strong></span>";
       document.getElementById("hf-dice-out").innerHTML = html;
     };
-    const hfWon = document.getElementById("hf-won");
-    if (hfWon) hfWon.onclick = function () {
+    const hfKilled = document.getElementById("hf-killed");
+    if (hfKilled) hfKilled.onclick = function () {
       const w = fightWeaponFromSelect("hf-weapon", p);
-      startResolution({ type: "fight", heroWinning: true, gun: !!(w && w.gun), weapon: w,
-        title: "Hero WON the fight (" + weaponLabel(w) + ")" });
+      startResolution({ type: "fight", heroWinning: true, killed: true, gun: !!(w && w.gun), weapon: w,
+        title: "Zombie killed (" + weaponLabel(w) + ")" });
+    };
+    const hfFended = document.getElementById("hf-fended");
+    if (hfFended) hfFended.onclick = function () {
+      const w = fightWeaponFromSelect("hf-weapon", p);
+      startResolution({ type: "fight", heroWinning: true, killed: false, gun: !!(w && w.gun), weapon: w,
+        title: "Zombie fended off (" + weaponLabel(w) + ")" });
     };
     const hfLost = document.getElementById("hf-lost");
     if (hfLost) hfLost.onclick = function () {
-      startResolution({ type: "fight", heroWinning: false, gun: false, weapon: fightWeaponFromSelect("hf-weapon", p), title: "Hero LOST the fight" });
+      startResolution({ type: "fight", heroWinning: false, killed: false, gun: false, weapon: fightWeaponFromSelect("hf-weapon", p), title: "Hero loses the fight" });
     };
 
     document.getElementById("g-playcard").onclick = function () {
@@ -1318,6 +1401,7 @@
     };
     wireRoster();
     wireObjectiveCard();
+    wireInPlayCard();
     document.getElementById("g-endhero").onclick = function () { askHeroLocation(p, endHeroTurn); };
     autoSave();
   }
@@ -1413,24 +1497,58 @@
 
 
   function endHeroTurn() {
-    const next = aliveIndices().filter(function (i) { return i > G.playerIndex; });
-    if (next.length) {
-      G.playerIndex = next[0];
-      resetHeroSteps();
-      renderHero();
-    } else {
-      G.phase = "zombie";
-      G.turnNumber++;
-      newZTurn();
-      // Step 1 of the Zombie turn: the sun marker creeps toward dawn (moved to
-      // the START of the turn). If it has already reached dawn, the night is over.
-      if (G.sun >= G.sunMax) { showEnding(); return; }
-      G.sun++;
-      G.zturn.sunNarr = narrate("sunMove");
-      if (musicOn && LNOE.FX) LNOE.FX.setStage(musicStage()); // music escalates as dawn nears
-      G.zturn.narration = narrate("zombieTurn");
-      renderZombie();
-    }
+    G.heroTurnsTaken = G.heroTurnsTaken || [];
+    if (G.heroTurnsTaken.indexOf(G.playerIndex) === -1) G.heroTurnsTaken.push(G.playerIndex);
+    beginNextHeroTurn();
+  }
+  // Heroes who are alive and haven't taken their turn yet THIS round.
+  function heroesLeftThisRound() {
+    return aliveIndices().filter(function (i) { return (G.heroTurnsTaken || []).indexOf(i) === -1; });
+  }
+  // After a Hero finishes: the players choose who goes next (a picker only when
+  // there's an actual choice). When everyone has gone, the Zombie turn begins.
+  function beginNextHeroTurn() {
+    const left = heroesLeftThisRound();
+    if (!left.length) { goToZombieTurn(); return; }
+    if (left.length === 1) { startHeroTurn(left[0]); return; }
+    showHeroPicker(left);
+  }
+  function startHeroTurn(i) {
+    G.playerIndex = i;
+    resetHeroSteps();
+    renderHero();
+    scrollTop();   // new Hero turn — show the banner from the top
+  }
+  function showHeroPicker(left) {
+    let m = document.getElementById("hero-pick-modal");
+    if (!m) { m = document.createElement("div"); m.id = "hero-pick-modal"; m.className = "modal-overlay"; document.body.appendChild(m); }
+    let h = '<div class="modal-card"><h3>🧍 Whose turn is next?</h3>';
+    h += '<p class="section-help">The Heroes choose their turn order each round — pick who goes next.</p>';
+    h += '<div class="checks" style="flex-direction:column">';
+    left.forEach(function (i) {
+      const p = G.players[i];
+      h += '<button class="btn btn-green hp-pick mt" style="text-align:left" data-i="' + i + '">🧍 ' + esc(p.hero) +
+        ' <span class="hint">(' + esc(p.name) + ")</span></button>";
+    });
+    h += "</div></div>";
+    m.innerHTML = h; m.classList.add("open");
+    m.querySelectorAll(".hp-pick").forEach(function (b) {
+      b.onclick = function () { m.classList.remove("open"); startHeroTurn(+b.dataset.i); };
+    });
+  }
+  function goToZombieTurn() {
+    G.phase = "zombie";
+    G.turnNumber++;
+    newZTurn();
+    // Step 1 of the Zombie turn: the sun marker creeps toward dawn (moved to the
+    // START of the turn). If it has already reached dawn, the night is over.
+    if (G.sun >= G.sunMax) { showEnding(); return; }
+    G.sun++;
+    G.zturn.sunNarr = narrate("sunMove");
+    if (musicOn && LNOE.FX) LNOE.FX.setStage(musicStage()); // music escalates as dawn nears
+    G.zturn.narration = narrate("zombieTurn");
+    renderZombie();
+    scrollTop();   // new Zombie turn — show the banner from the top
   }
 
   /* ---------------------------- ZOMBIE TURN ------------------------- */
@@ -1442,6 +1560,7 @@
     h += "</div>";
 
     h += objectiveCard();
+    h += inPlayCard();
     h += '<div class="narration voice-on">' + esc(G.zturn.narration) + ' <button class="btn btn-ghost" id="z-speak" style="float:right">🔊 Read aloud</button></div>';
 
     // 1 · The sun marker — it advances at the START of the Zombie turn.
@@ -1489,9 +1608,11 @@
     h += '<div id="z-dice-out" class="dice-area"></div>';
     h += '<div class="toolbar mt"><label class="hint">Hero in this fight: <select id="zf-hero"></select></label>';
     h += '<label class="hint">Fighting with: <select id="zf-weapon"></select></label></div>';
+    h += '<div class="loc-box mt"><strong>🎲 Heroes roll 2 Fight Dice.</strong> The Zombie is <strong>KILLED</strong> only if the Hero rolls higher than the Zombie <em>and</em> rolled <strong>doubles</strong>. A higher roll with no doubles just <strong>fends it off</strong> (the Zombie survives — not a kill).</div>';
     h += '<div class="row mt"><span style="flex-basis:100%" class="hint">For each fight, state the result — the Zombie may intervene with a card:</span>';
-    h += '<button class="btn btn-green" id="zf-won">🧍 Hero won this fight</button>';
-    h += '<button class="btn btn-primary" id="zf-lost">☠ Hero lost this fight</button></div>';
+    h += '<button class="btn btn-green" id="zf-killed">🎯 Zombie killed</button>';
+    h += '<button class="btn btn-rust" id="zf-fended">🛡 Zombie fended off</button>';
+    h += '<button class="btn btn-primary" id="zf-lost">☠ Hero loses</button></div>';
     h += "</div>";
 
     // 5 · Spawn — AFTER the fights. Auto-roll one die per spawning pit, then place them.
@@ -1660,6 +1781,7 @@
     };
     // Objective card (kill counter / Townsfolk tracker) wiring.
     wireObjectiveCard();
+    wireInPlayCard();
     // Escort-scenario location inputs: update state and refresh the guide live.
     function refreshMoveGuide() {
       const g = document.querySelector(".move-guide");
@@ -1695,13 +1817,18 @@
       const idx = wi ? +wi.value : -1;
       return idx >= 0 ? (carriedWeapons(p)[idx] || null) : null;
     }
-    document.getElementById("zf-won").onclick = function () {
+    document.getElementById("zf-killed").onclick = function () {
       const w = zfWeapon();
-      startResolution({ type: "fight", heroWinning: true, gun: !!(w && w.gun), weapon: w,
-        title: "Hero won the fight (" + weaponLabel(w) + ")" });
+      startResolution({ type: "fight", heroWinning: true, killed: true, gun: !!(w && w.gun), weapon: w,
+        title: "Zombie killed (" + weaponLabel(w) + ")" });
+    };
+    document.getElementById("zf-fended").onclick = function () {
+      const w = zfWeapon();
+      startResolution({ type: "fight", heroWinning: true, killed: false, gun: !!(w && w.gun), weapon: w,
+        title: "Zombie fended off (" + weaponLabel(w) + ")" });
     };
     document.getElementById("zf-lost").onclick = function () {
-      startResolution({ type: "fight", heroWinning: false, gun: false, weapon: zfWeapon(), title: "Hero lost the fight" });
+      startResolution({ type: "fight", heroWinning: false, killed: false, gun: false, weapon: zfWeapon(), title: "Hero loses the fight" });
     };
     document.getElementById("z-react").onclick = function () {
       const name = document.getElementById("z-herocard").value.trim();
@@ -1876,7 +2003,7 @@
     // stated stands — settle it right away rather than opening a second screen
     // that just repeats the dice roll and the win/lose buttons.
     if (context.type === "fight" && !botDecideIntervention(context)) {
-      finishResolution(context.heroWinning ? "Heroes won the fight" : "Zombies won the fight");
+      finishResolution(context.heroWinning ? (context.killed ? "killed" : "fended") : "lost");
       return;
     }
     // A Hero played an Event card: narrate it thematically and prepare the
@@ -2026,11 +2153,13 @@
     h += '<datalist id="rv-events">' + heroEventOptions() + "</datalist>";
     h += '<button class="btn btn-rust mt" id="rv-play">Hero plays this →</button></div>';
 
-    // 4) Settle.
+    // 4) Settle — three outcomes.
     if (isFight) {
-      h += '<div class="rv-panel"><div class="rv-panel-h">Settle the fight — who won?</div>';
-      h += '<div class="row"><button class="btn btn-green" data-win="Heroes">🧍 Hero wins</button>';
-      h += '<button class="btn btn-primary" data-win="Zombies">☠ Zombie wins</button></div></div>';
+      h += '<div class="rv-panel"><div class="rv-panel-h">Settle the fight — how did it end?</div>';
+      h += '<p class="hint" style="margin:0 0 8px">Zombie is KILLED only if the Hero rolls higher AND rolled doubles. A higher roll without doubles just fends it off (no kill).</p>';
+      h += '<div class="row"><button class="btn btn-green" data-result="killed">🎯 Zombie killed</button>';
+      h += '<button class="btn btn-rust" data-result="fended">🛡 Zombie fended off</button>';
+      h += '<button class="btn btn-primary" data-result="lost">☠ Hero loses</button></div></div>';
     } else {
       h += '<div class="row mt"><button class="btn btn-green" id="rv-close">✓ Done — close</button></div>';
     }
@@ -2066,8 +2195,8 @@
     };
 
     if (isFight) {
-      m.querySelectorAll("button[data-win]").forEach(function (b) {
-        b.onclick = function () { finishResolution(b.dataset.win + " won the fight"); };
+      m.querySelectorAll("button[data-result]").forEach(function (b) {
+        b.onclick = function () { finishResolution(b.dataset.result); };
       });
     } else {
       const close = document.getElementById("rv-close");
@@ -2075,12 +2204,16 @@
     }
   }
 
-  function finishResolution(outcome) {
+  // result: "killed" | "fended" | "lost" for fights; "" for a card play.
+  function finishResolution(result) {
     const r = G.resolve; if (!r) return;
     const note = document.getElementById("rv-saved");
     if (note) note.textContent = "Saving…";
     const played = r.steps.filter(function (s) { return s.card; })
       .map(function (s) { return (s.who === "bot" ? "Zombie: " : "Hero: ") + s.card; });
+    const outcomeText = result === "killed" ? "Zombie killed"
+      : result === "fended" ? "Zombie fended off (not killed)"
+      : result === "lost" ? "Zombies won the fight (Hero loses)" : "";
     const entry = {
       turnNumber: G.turnNumber,
       round: G.round,
@@ -2091,25 +2224,27 @@
       movementActions: (G.phase === "hero" ? "Hero turn" : "Zombie turn") + " — " +
         (r.context.type === "fight" ? "fight" : "card play") + ": " + r.context.title,
       diceRolls: [],
-      damageResults: outcome || "",
-      outcome: outcome || "",
+      damageResults: outcomeText,
+      outcome: outcomeText,
       narration: "",
       timestamp: new Date().toISOString()
     };
     let killScored = false;
     if (r.context.type === "fight") {
-      const heroWon = outcome.indexOf("Heroes") === 0;
       narrationMusic(8000);
-      const line = LNOE.narrate(heroWon ? "heroWins" : "zombieWins");
-      if (heroWon) {
+      if (result === "killed") {
         // Ranged weapon → gunshot; hand weapon (or bare hands) → a meaty whack.
         const w = r.context.weapon;
         if (w && w.ranged) LNOE.FX.gunshot(); else LNOE.FX.whack();
+        const line = LNOE.narrate("heroWins");
         if (voiceOn && line) setTimeout(function () { LNOE.TTS.speak(stripQuotes(line)); }, 450);
-        // Auto-count the kill toward a kill-objective scenario.
+        // Only a KILL counts toward a kill-objective scenario.
         if (G.scenario.objTracker && G.scenario.objTracker.autoKill) { G.objectiveCount = (G.objectiveCount || 0) + 1; killScored = true; }
-      } else {
-        // Zombie wins: play the (quieter) zombie sound, then narrate once it ends.
+      } else if (result === "fended") {
+        LNOE.FX.whack();   // a shove, not a kill
+        if (voiceOn) setTimeout(function () { LNOE.TTS.speak("The Hero drives the dead thing back — it staggers, but it is not down. No kill this time."); }, 350);
+      } else { // lost
+        const line = LNOE.narrate("zombieWins");
         LNOE.FX.feed(function () { if (voiceOn && line) LNOE.TTS.speak(stripQuotes(line)); });
       }
     }
@@ -2144,13 +2279,12 @@
 
   function endZombieTurn() {
     saveTurn(); // auto-save the turn summary to the log
-    // (The sun now advances at the START of the next Zombie turn — see endHeroTurn.)
+    // (The sun now advances at the START of the next Zombie turn — see goToZombieTurn.)
     G.round++;
     G.phase = "hero";
-    const alive = aliveIndices();
-    G.playerIndex = alive.length ? alive[0] : 0;
+    G.heroTurnsTaken = [];   // a fresh round — everyone gets to go again
     resetHeroSteps();
-    renderHero();
+    beginNextHeroTurn();     // the players choose who starts the round
   }
 
   /* ----------------------------- END GAME --------------------------- */
@@ -2198,10 +2332,13 @@
         const survivors = G.players.filter(function (p, i) { return survived[i]; });
         const fallen = G.players.filter(function (p, i) { return !survived[i]; });
         const text = LNOE.endingNarration(winner, survivors, fallen, G.scenario.name);
-        narrationMusic();
         LNOE.FX.stinger();
-        if (winner === "Heroes") setTimeout(function () { LNOE.FX.whack(); }, 300);
-        else setTimeout(function () { LNOE.FX.feed(); }, 300);
+        if (winner === "Heroes") {
+          LNOE.FX.heroWinSong();   // victory song (replaces the night music)
+        } else {
+          narrationMusic();
+          setTimeout(function () { LNOE.FX.feed(); }, 300);
+        }
         if (voiceOn) setTimeout(function () { LNOE.TTS.speak(stripQuotes(text)); }, 1000);
         render(text);
       };
@@ -2239,9 +2376,10 @@
       players: G.players, buildings: G.buildings || [], spawnAreas: G.spawnAreas || [],
       advanced: G.advanced, startedAt: G.startedAt, introText: G.introText,
       scenarioLoc: G.scenarioLoc, objectiveCount: G.objectiveCount, ending: G.ending, rescue: G.rescue,
+      zombieInPlay: G.zombieInPlay || [],
       cornered: G.cornered,
       sunMax: G.sunMax, sun: G.sun, round: G.round, turnNumber: G.turnNumber,
-      playerIndex: G.playerIndex, phase: G.phase,
+      playerIndex: G.playerIndex, phase: G.phase, heroTurnsTaken: G.heroTurnsTaken || [],
       zturn: G.zturn, heroStep: G.heroStep, heroDone: G.heroDone, heroBot: G.heroBot,
       bot: { setKey: G.bot.setKey, advanced: G.bot.advanced,
              drawPile: G.bot.drawPile, discard: G.bot.discard, hand: G.bot.hand }
@@ -2271,9 +2409,10 @@
       advanced: state.advanced, startedAt: state.startedAt, introText: state.introText,
       scenarioLoc: state.scenarioLoc || { primary: "", safe: "" },
       objectiveCount: state.objectiveCount || 0, ending: state.ending || false, rescue: state.rescue || null,
+      zombieInPlay: state.zombieInPlay || [],
       cornered: state.cornered || false,
       sunMax: state.sunMax, sun: state.sun, round: state.round, turnNumber: state.turnNumber,
-      playerIndex: state.playerIndex, phase: state.phase,
+      playerIndex: state.playerIndex, phase: state.phase, heroTurnsTaken: state.heroTurnsTaken || [],
       zturn: state.zturn || {}, heroStep: state.heroStep || 0, heroDone: state.heroDone || [],
       heroBot: state.heroBot || { ran: false, cards: [] }
     };
@@ -2285,6 +2424,7 @@
     LNOE.switchTab("start");
     if (musicOn && LNOE.FX) LNOE.FX.startMusic(musicStage());
     if (G.phase === "zombie") renderZombie(); else renderHero();
+    scrollTop();
   }
 
   // Friendly "saved …" time label for the Save / Load tab.

@@ -9,6 +9,16 @@
   // Expansions temporarily unavailable for selection.
   const BLOCKED_EXPANSIONS = ["growing_hunger", "survival_fittest"];
 
+  // Buildings that are AUTO-tagged as a Zombie Spawning Pit the moment they're
+  // selected (the player can still untick a pit afterwards).
+  const AUTO_PIT_BUILDINGS = ["Morgue", "The Barn", "Graveyard", "Junkyard"];
+  // Selecting the Gym also adds an outdoor pit beside it.
+  const GYM = "Gym", GYM_OUTDOOR = "Outdoor next to the Gym";
+
+  // Characters who begin the game with specific gear (added automatically when
+  // the character is chosen).
+  const HERO_STARTING_GEAR = { "Sheriff Anderson": ["Revolver"] };
+
   // Gender is fixed per character (no input needed) — derived from the chosen Hero.
   const HERO_GENDER = {
     "Johnny": "M", "Jake Cartwright": "M", "Sally": "F", "Father Joseph": "M",
@@ -217,7 +227,19 @@
       el.oninput = function () { state.players[+el.dataset.i].name = el.value; };
     });
     wrap.querySelectorAll(".su-phero").forEach(function (el) {
-      el.onchange = function () { state.players[+el.dataset.i].hero = el.value; renderPlayers(); };
+      el.onchange = function () {
+        const p = state.players[+el.dataset.i];
+        p.hero = el.value;
+        // Auto-add the character's starting weapon (e.g. Sheriff Anderson → Revolver).
+        const gear = HERO_STARTING_GEAR[el.value];
+        if (gear) {
+          p.weapons = p.weapons || []; p.items = p.items || [];
+          gear.forEach(function (w) {
+            if (p.weapons.indexOf(w) === -1 && p.weapons.length < 2 && (p.weapons.length + p.items.length) < 4) p.weapons.push(w);
+          });
+        }
+        renderPlayers();
+      };
     });
     wrap.querySelectorAll(".su-up").forEach(function (el) {
       el.onclick = function () {
@@ -267,8 +289,17 @@
     el.querySelectorAll(".su-bld").forEach(function (c) {
       c.onchange = function () {
         const v = c.value;
-        if (c.checked) { if (state.buildings.indexOf(v) === -1) state.buildings.push(v); }
-        else { state.buildings = state.buildings.filter(function (x) { return x !== v; }); }
+        if (c.checked) {
+          if (state.buildings.indexOf(v) === -1) state.buildings.push(v);
+          // Auto-tag designated buildings as a Spawning Pit on selection.
+          if (AUTO_PIT_BUILDINGS.indexOf(v) > -1 && state.spawnAreas.indexOf(v) === -1) state.spawnAreas.push(v);
+          // Gym → also add an outdoor SPAWNING PIT beside it (a pit only, NOT a building).
+          if (v === GYM && state.spawnAreas.indexOf(GYM_OUTDOOR) === -1) state.spawnAreas.push(GYM_OUTDOOR);
+        } else {
+          state.buildings = state.buildings.filter(function (x) { return x !== v; });
+          // Removing the Gym removes its outdoor pit.
+          if (v === GYM) state.spawnAreas = state.spawnAreas.filter(function (x) { return x !== GYM_OUTDOOR; });
+        }
         renderBuildings();
         renderSpawns();   // spawning-pit options come ONLY from the selected buildings
         renderRescue();   // townsfolk / safe house pools depend on the buildings
@@ -283,13 +314,23 @@
       el.innerHTML = '<span class="hint">Select buildings on your board above first, then tap which ones have a spawning pit.</span>';
       return;
     }
-    // A pit can only be a SELECTED building — drop any stragglers.
-    state.spawnAreas = state.spawnAreas.filter(function (a) { return state.buildings.indexOf(a) > -1; });
-    el.innerHTML = state.buildings.map(function (b) {
+    const gymOn = state.buildings.indexOf(GYM) > -1;
+    // A pit must be a SELECTED building OR the outdoor area beside the Gym.
+    state.spawnAreas = state.spawnAreas.filter(function (a) {
+      return state.buildings.indexOf(a) > -1 || (a === GYM_OUTDOOR && gymOn);
+    });
+    let html = state.buildings.map(function (b) {
       const on = state.spawnAreas.indexOf(b) > -1;
       return '<label class="chk' + (on ? " chk-on" : "") + '"><input type="checkbox" class="su-spawn" value="' +
         esc(b) + '"' + (on ? " checked" : "") + "> ☠ " + esc(b) + "</label>";
     }).join("");
+    // Outdoor pit beside the Gym — a Spawning Pit only, NOT a building.
+    if (gymOn) {
+      const on = state.spawnAreas.indexOf(GYM_OUTDOOR) > -1;
+      html += '<label class="chk' + (on ? " chk-on" : "") + '"><input type="checkbox" class="su-spawn" value="' +
+        esc(GYM_OUTDOOR) + '"' + (on ? " checked" : "") + "> ☠ " + esc(GYM_OUTDOOR) + ' <span class="hint">(outdoor — pit only)</span></label>';
+    }
+    el.innerHTML = html;
     el.querySelectorAll(".su-spawn").forEach(function (c) {
       c.onchange = function () {
         const v = c.value;

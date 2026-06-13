@@ -256,10 +256,18 @@
     // HERO WINS with a RANGED weapon: a loud, punchy gunshot. Built around
     // MID frequencies (≈300–1800 Hz) so it's clearly audible on phone/laptop
     // speakers — not just sub-bass a small speaker can't reproduce.
-    gunshot: function () {
-      const f = fileFor("heroShoot"); if (f) { playFile(f, false, 1); return; }
+    gunshot: function (onDone) {
+      let fired = false;
+      function done() { if (fired) return; fired = true; if (onDone) onDone(); }
+      const f = fileFor("heroShoot");
+      if (f) {
+        const a = playFile(f, false, 1);
+        if (a) { a.onended = done; setTimeout(done, 6000); } else done();   // narrate AFTER the shot ends
+        return;
+      }
       const c = getCtx();
-      if (!c) return;
+      if (!c) { setTimeout(done, 350); return; }
+      setTimeout(done, 480);   // generated gunshot is ~0.45s — narrate just after
       const t = c.currentTime;
       const out = c.createGain(); out.gain.value = 1.0; out.connect(c.destination);
 
@@ -301,6 +309,33 @@
       ng.gain.exponentialRampToValueAtTime(0.35, t + 0.03);
       ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
       n.start(t + 0.03); n.stop(t + 0.45);
+    },
+
+    // RANGED shot MISSES: a misfire/click. Uses the file if provided, else a dry
+    // mechanical click-and-hiss (no satisfying boom — it failed).
+    gunMiss: function () {
+      const f = fileFor("heroShootMiss"); if (f) { playFile(f, false, 1); return; }
+      const c = getCtx();
+      if (!c) return;
+      const t = c.currentTime;
+      const out = c.createGain(); out.gain.value = 0.9; out.connect(c.destination);
+      // a sharp hammer click
+      const click = c.createOscillator(); click.type = "square";
+      click.frequency.setValueAtTime(900, t);
+      click.frequency.exponentialRampToValueAtTime(180, t + 0.04);
+      const cg = c.createGain(); cg.gain.value = 0.0001;
+      click.connect(cg); cg.connect(out);
+      cg.gain.exponentialRampToValueAtTime(0.5, t + 0.002);
+      cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+      click.start(t); click.stop(t + 0.07);
+      // a brief dud hiss
+      const n = c.createBufferSource(); n.buffer = noiseBuffer(c, 0.18);
+      const hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 2000;
+      const ng = c.createGain(); ng.gain.value = 0.0001;
+      n.connect(hp); hp.connect(ng); ng.connect(out);
+      ng.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      n.start(t + 0.02); n.stop(t + 0.22);
     },
 
     // ZOMBIE WINS a fight: the zombie clip (quieter), then onDone() once it ends.
@@ -423,8 +458,27 @@
     },
     stopMusic: function () {
       if (FX._musicEl) { try { FX._musicEl.pause(); } catch (e) {} FX._musicEl = null; FX._musicUrl = null; }
+      if (FX._winEl) { try { FX._winEl.pause(); } catch (e) {} FX._winEl = null; }
+      if (FX._introEl) { try { FX._introEl.pause(); } catch (e) {} FX._introEl = null; }
       if (FX._music) { FX._music.stop(); FX._music = null; }
       FX._musicGain = null;
+    },
+    // Heroes win the GAME: stop the night music and play the victory song.
+    heroWinSong: function () {
+      const f = fileFor("heroWinSong");
+      if (!f) return null;
+      FX.stopMusic();
+      FX._winEl = playFile(f, false, 0.9);
+      return FX._winEl;
+    },
+    // Opening page: a looping intro theme until the game actually begins.
+    introSong: function () {
+      const f = fileFor("introSong");
+      if (!f) return null;
+      FX.stopMusic();
+      FX._introBaseVol = 0.55;
+      FX._introEl = playFile(f, true, FX._introBaseVol);
+      return FX._introEl;
     },
     // How many music stages exist (level files if provided, else the 4 generated themes).
     stageCount: function () { return musicLevels() ? musicLevels().length : MUSIC_THEMES.length; },
@@ -444,6 +498,7 @@
     duck: function (on) {
       FX._ducked = !!on;
       if (FX._musicEl) fadeAudio(FX._musicEl, on ? 0.1 : FX._musicBaseVol, on ? 350 : 1100);
+      if (FX._introEl) fadeAudio(FX._introEl, on ? 0.12 : (FX._introBaseVol || 0.55), on ? 350 : 1100);
       if (FX._musicGain) {
         try {
           const c = getCtx();
