@@ -86,8 +86,9 @@
           "Discard it with no effect. (If a Hero really is in a building, set them to “In a building” in the Heroes list, then re-reveal.)"];
       }
       const who = p.hero + (p.heroName ? " (" + p.heroName + ")" : "");
-      return ["🧍 Drop the Zombie on: " + who + " — they’re inside a building.",
-        "Take a Zombie from the pool and place it in the same space as " + p.hero + "."];
+      const where = p.heroBuilding ? "the " + p.heroBuilding : "a building";
+      return ["🧍 Drop the Zombie on: " + who + " — inside " + where + ".",
+        "Take a Zombie from the pool and place it in the same space as " + p.hero + " in " + where + "."];
     }
     if (n.indexOf("cornered") > -1) {
       return ["For the rest of this turn (until your next Zombie turn) every Zombie rolls 2 extra Fight Dice.",
@@ -554,6 +555,7 @@
       h += '<button class="btn btn-sm loc-btn' + (loc === "building" ? " loc-on" : "") + '" data-loc="' + i + ':building">🏚 In a building</button>';
       h += '<button class="btn btn-sm loc-btn' + (loc === "outdoor" ? " loc-on" : "") + '" data-loc="' + i + ':outdoor">🌲 Outdoors</button>';
       h += "</div>";
+      if (loc === "building" && p.building) h += '<span class="hint">in the <strong>' + esc(p.building) + "</strong></span>";
       h += "</div>";
       // Weapons (max 2 of the 4).
       h += '<div class="inv-line"><span class="inv-tag">🗡 Weapons</span>';
@@ -701,10 +703,16 @@
     if (!idxs.length) return null;
     const want = idxs.filter(function (i) { return G.players[i].location === pref; });
     if (strict && !want.length) return null;
-    const pool = want.length ? want : idxs;
+    let pool = want.length ? want : idxs;
+    // For building targets, prefer Heroes whose exact building we know, so the
+    // card can name it (e.g. "in the Hospital") instead of just "a building".
+    if (pref === "building") {
+      const known = pool.filter(function (i) { return G.players[i].building; });
+      if (known.length) pool = known;
+    }
     const i = pool[Math.floor(Math.random() * pool.length)];
     const p = G.players[i];
-    return { idx: i, hero: p.hero, heroName: p.name, loc: p.location || "" };
+    return { idx: i, hero: p.hero, heroName: p.name, loc: p.location || "", building: p.building || "" };
   }
   // Every board location the Bot could target: buildings + labelled spawning pits.
   function allAreas() {
@@ -756,7 +764,8 @@
     const narr = shortSentence(needsTarget ? LNOE.cardBuildingNarration(c.name, target) : LNOE.cardNarration(c.name));
     const pl = { name: c.name, simple: c.simple, text: c.text, remains: c.remains, timing: c.timing,
       narration: narr, target: target, roll: roll, heroPref: heroPref, heroStrict: heroStrict,
-      hero: hp ? hp.hero : null, heroName: hp ? hp.heroName : "", heroLoc: hp ? hp.loc : "" };
+      hero: hp ? hp.hero : null, heroName: hp ? hp.heroName : "", heroLoc: hp ? hp.loc : "",
+      heroBuilding: hp ? hp.building : "" };
     pl.steps = zombieCardSteps(pl);
     return pl;
   }
@@ -816,7 +825,7 @@
     h += '<span class="spacer"></span>';
     h += '<button class="btn btn-ghost" id="g-music">' + (musicOn ? "🎵 Music: ON" : "🎵 Music: OFF") + "</button>";
     h += '<button class="btn btn-ghost" id="g-voice">' + (voiceOn ? "🔊 Scary Voice: ON" : "🔇 Scary Voice: OFF") + "</button>";
-    h += '<select id="g-voicepick" class="hdr-select" title="Narrator voice (from your device)"></select>';
+    // Narrator-voice picker lives on the dedicated Voice tab now.
     h += '<button class="btn btn-ghost" id="g-end">End Game</button>';
     h += '<button class="btn btn-ghost" id="g-quit">Back to Setup</button>';
     h += "</div>";
@@ -852,22 +861,7 @@
       this.textContent = voiceOn ? "🔊 Scary Voice: ON" : "🔇 Scary Voice: OFF";
       if (voiceOn && !LNOE.TTS.available) alert("Your browser has no speech voices available.");
     };
-    const vp = document.getElementById("g-voicepick");
-    if (vp) {
-      const vs = LNOE.TTS.voices();
-      if (!vs.length) {
-        vp.innerHTML = "<option>Device voice</option>"; vp.disabled = true;
-      } else {
-        const cur = LNOE.TTS.currentName();
-        vp.innerHTML = vs.map(function (v) {
-          return '<option value="' + esc(v.name) + '"' + (v.name === cur ? " selected" : "") + ">🗣 " + esc(v.name) + "</option>";
-        }).join("");
-        vp.onchange = function () {
-          LNOE.TTS.setVoice(this.value);
-          if (voiceOn) LNOE.TTS.speak("This is the narrator's voice."); // quick preview
-        };
-      }
-    }
+    // The narrator-voice chooser moved to its own Voice tab.
     document.getElementById("g-quit").onclick = function () {
       if (confirm("Leave this game and go back to Setup? Progress in this game will be lost (saved turn logs are kept).")) {
         G = null; LNOE.TTS.stop(); LNOE.FX.stopAll(); LNOE.Setup.forceSetup();
@@ -898,9 +892,11 @@
       h += "</div>";
     }
 
-    h += '<div class="turn-banner">';
-    h += '<div class="phase">Hero Turn · ' + aliveIndices().length + " Hero(es) still alive</div>";
-    h += '<div class="who">' + esc(p.hero) + ' <span style="color:var(--muted);font-size:16px">— played by ' + esc(p.name) + "</span></div>";
+    const _alive = aliveIndices();
+    const _pos = _alive.indexOf(G.playerIndex) + 1;
+    h += '<div class="turn-banner hero-turn">';
+    h += '<div class="phase">🧍 HERO TURN · Hero ' + _pos + " of " + _alive.length + "</div>";
+    h += '<div class="who">▶ Now playing: ' + esc(p.hero) + ' <span style="color:var(--muted);font-size:15px">— ' + esc(p.name) + "</span></div>";
     // Current hero's gear, so it stays visible while you scroll.
     h += '<div class="banner-gear">' + esc(bannerGearText(p)) + "</div>";
     h += "</div>";
@@ -1050,20 +1046,45 @@
     autoSave();
   }
 
-  // On ending a Hero's turn, confirm where they finished. "In a building" sets
-  // that; anything else (Outdoors) is the default. Then run onDone().
+  // On ending a Hero's turn, confirm where they finished. Outdoors is the
+  // default; "In a building" then asks WHICH building (dropdown). Runs onDone().
   function askHeroLocation(p, onDone) {
     let m = document.getElementById("loc-modal");
     if (!m) { m = document.createElement("div"); m.id = "loc-modal"; m.className = "modal-overlay"; document.body.appendChild(m); }
-    m.innerHTML = '<div class="modal-card"><h3>📍 ' + esc(p.hero) + '’s position</h3>' +
-      '<p>Is <strong>' + esc(p.hero) + '</strong> finishing the turn <strong>inside a building</strong>?</p>' +
-      '<p class="hint">If not, they’re Outdoors. This is what Zombie cards like Surprise Attack and Shamble target.</p>' +
-      '<div class="row mt"><button class="btn btn-green" id="loc-yes">🏚 In a building</button>' +
-      '<button class="btn btn-primary" id="loc-no">🌲 Outdoors</button></div></div>';
-    m.classList.add("open");
-    function done(loc) { p.location = loc; m.classList.remove("open"); autoSave(); onDone(); }
-    document.getElementById("loc-yes").onclick = function () { done("building"); };
-    document.getElementById("loc-no").onclick = function () { done("outdoor"); };
+    function close() { m.classList.remove("open"); }
+    function finish(loc, building) { p.location = loc; p.building = building || ""; close(); autoSave(); onDone(); }
+
+    function paint(step) {
+      let h = '<div class="modal-card"><h3>📍 ' + esc(p.hero) + '’s position</h3>';
+      if (step === "building") {
+        const blds = G.buildings || [];
+        h += '<p>Which <strong>building</strong> is <strong>' + esc(p.hero) + '</strong> finishing the turn in?</p>';
+        if (blds.length) {
+          h += '<label class="field">Building<select id="loc-which"><option value="">— choose a building —</option>' +
+            blds.map(function (b) { return '<option value="' + esc(b) + '"' + (p.building === b ? " selected" : "") + ">" + esc(b) + "</option>"; }).join("") +
+            "</select></label>";
+        } else {
+          h += '<p class="hint">No buildings were tagged in Setup — you can still confirm; just note the spot on the board.</p>';
+        }
+        h += '<div class="row mt"><button class="btn" id="loc-back">← Back</button>' +
+          '<button class="btn btn-green" id="loc-confirm">✓ Confirm &amp; end turn</button></div></div>';
+        m.innerHTML = h; m.classList.add("open");
+        document.getElementById("loc-back").onclick = function () { paint("ask"); };
+        document.getElementById("loc-confirm").onclick = function () {
+          const sel = document.getElementById("loc-which");
+          finish("building", sel ? sel.value : "");
+        };
+      } else {
+        h += '<p>Is <strong>' + esc(p.hero) + '</strong> finishing the turn <strong>inside a building</strong>?</p>';
+        h += '<p class="hint">If not, they’re Outdoors. This is what Zombie cards like Surprise Attack and Shamble target.</p>';
+        h += '<div class="row mt"><button class="btn btn-green" id="loc-yes">🏚 In a building</button>' +
+          '<button class="btn btn-primary" id="loc-no">🌲 Outdoors</button></div></div>';
+        m.innerHTML = h; m.classList.add("open");
+        document.getElementById("loc-yes").onclick = function () { paint("building"); };
+        document.getElementById("loc-no").onclick = function () { finish("outdoor", ""); };
+      }
+    }
+    paint("ask");
   }
 
   function botHandSummary() {
@@ -1102,8 +1123,8 @@
   /* ---------------------------- ZOMBIE TURN ------------------------- */
   function renderZombie() {
     let h = header();
-    h += '<div class="turn-banner">';
-    h += '<div class="phase">Zombie Turn · the Zombie plays</div>';
+    h += '<div class="turn-banner zombie-turn">';
+    h += '<div class="phase">☠ ZOMBIE TURN · the Zombie plays</div>';
     h += '<div class="who">☠ Zombie Turn #' + G.turnNumber + "</div>";
     h += "</div>";
 
@@ -1259,6 +1280,7 @@
         if (b.dataset.kind === "hero") {
           const hp = pickHeroPref(p.heroPref || "building", p.heroStrict);
           p.hero = hp ? hp.hero : null; p.heroName = hp ? hp.heroName : ""; p.heroLoc = hp ? hp.loc : "";
+          p.heroBuilding = hp ? hp.building : "";
         } else {
           const newT = pickFrom(targetPoolFor({ text: p.text }));
           p.target = newT;

@@ -162,9 +162,15 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
   /* Stick just under the (sticky) topbar so you always see whose turn it is. */
   position: sticky; top: var(--topbar-h, 56px); z-index: 15; box-shadow: 0 8px 18px rgba(0,0,0,.45);
 }
-.turn-banner .who { font-size: 22px; font-weight: 700; }
-.turn-banner .phase { color: var(--rust); font-family: "Special Elite", monospace; }
+.turn-banner .who { font-size: 24px; font-weight: 800; letter-spacing: .3px; }
+.turn-banner .phase { font-size: 13px; letter-spacing: 1.5px; color: var(--rust); font-family: "Special Elite", monospace; }
 .turn-banner .banner-gear { margin-top: 6px; font-size: 13px; color: var(--ink); opacity: .85; }
+/* Hero turns read GREEN, Zombie turns read RED — so you never mistake whose turn it is. */
+.turn-banner.hero-turn { background: linear-gradient(90deg, #10331c, #1c1f27); border-color: var(--green); border-left: 6px solid var(--green); }
+.turn-banner.hero-turn .phase { color: #6ee08a; }
+.turn-banner.hero-turn .who { color: #d7f7df; }
+.turn-banner.zombie-turn { background: linear-gradient(90deg, #3a0f0f, #1c1f27); border-color: var(--blood-bright); border-left: 6px solid var(--blood-bright); }
+.turn-banner.zombie-turn .who { color: #ffd9d9; }
 
 .action-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 620px) { .action-list { grid-template-columns: 1fr; } }
