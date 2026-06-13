@@ -48,6 +48,14 @@ button { font-family: inherit; cursor: pointer; }
 .loc-line { align-items: center; flex-wrap: wrap; }
 .loc-seg { display: inline-flex; gap: 6px; }
 .loc-btn.loc-on { background: var(--green); border-color: #4f9d4f; color: #fff; }
+.vs-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.vs-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line, #333); border-radius: 9px; background: var(--panel2); cursor: pointer; }
+.vs-row.vs-on { border-color: var(--green); background: #14321a; }
+.vs-row input { flex: 0 0 auto; }
+.vs-meta { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.vs-name { font-weight: 600; }
+.vs-lang { font-size: 12px; color: var(--muted); }
+.vs-prev { flex: 0 0 auto; }
 .btn-lg { font-size: 17px; padding: 14px 20px; }
 .btn-block { width: 100%; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -298,3 +306,63 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .obj-big { font-size: 20px; color: var(--blood-bright); }
 .obj-kill, .obj-saved { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .obj-done { flex-basis: 100%; color: var(--green); font-weight: 700; background: rgba(63,125,63,.14); border: 1px solid var(--green); border-radius: 8px; padding: 6px 10px; }
+
+/* ===================== MOBILE / SMALL SCREENS ===================== */
+/* Never let anything force a horizontal scrollbar; long words/IDs wrap. */
+html, body { max-width: 100%; overflow-x: hidden; }
+* { min-width: 0; }
+img, svg, video { max-width: 100%; height: auto; }
+.card, .card-draw, .narration, .modal-card { overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  /* Topbar: brand + account on row 1, tabs wrap onto their own full row. */
+  .topbar { flex-wrap: wrap; gap: 10px 12px; padding: 10px 14px; }
+  .brand { font-size: 21px; flex: 1 1 auto; }
+  .user-box { order: 2; font-size: 12px; gap: 8px; }
+  .user-box #user-email { max-width: 48vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabs { order: 3; flex: 1 1 100%; flex-wrap: wrap; gap: 6px; }
+  .tab { flex: 1 1 auto; text-align: center; padding: 8px 12px; font-size: 14px; }
+
+  main { padding: 16px 12px 72px; }
+  .card { padding: 15px; margin-bottom: 14px; }
+  .card h2 { font-size: 19px; }
+  .card h3 { font-size: 16px; }
+  .section-help { font-size: 13px; }
+
+  /* Stack side-by-side rows; full-width, comfortable tap targets. */
+  .row { gap: 10px; }
+  .row > * { min-width: 100%; }
+  .btn { padding: 11px 14px; }
+  .toolbar { gap: 8px; }
+  .toolbar .btn, .toolbar select { flex: 1 1 auto; }
+
+  .hdr-select { max-width: 100%; width: 100%; }
+
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .die { width: 42px; height: 42px; font-size: 20px; }
+
+  .card-draw { padding: 15px; }
+  .card-draw .ctitle { font-size: 23px; line-height: 1.1; }
+  .turn-banner .who { font-size: 19px; }
+
+  /* Modals: dock near the top, give the keyboard room, fit tall content. */
+  .modal-overlay { padding: 10px; align-items: flex-start; }
+  .modal-card { padding: 16px; margin-top: 6px; max-height: 94vh; }
+
+  /* Wide log tables scroll on their own instead of stretching the page. */
+  .log-wrap, .log-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .log-table { font-size: 12px; }
+  .log-table th, .log-table td { padding: 6px 8px; }
+
+  .inv-tag { min-width: 0; }
+  .vs-row { flex-wrap: wrap; }
+  .vs-prev { margin-left: auto; }
+}
+
+/* Very small phones */
+@media (max-width: 380px) {
+  .brand { font-size: 18px; }
+  .tab { font-size: 13px; padding: 7px 8px; }
+  .stat-grid { grid-template-columns: 1fr; }
+  .card-draw .ctitle { font-size: 21px; }
+}

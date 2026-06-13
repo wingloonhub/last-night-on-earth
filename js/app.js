@@ -11,9 +11,11 @@
     });
     $("tab-start").hidden = name !== "start";
     $("tab-saves").hidden = name !== "saves";
+    $("tab-voice").hidden = name !== "voice";
     $("tab-admin").hidden = name !== "admin";
     if (name === "admin") LNOE.Admin.render();
     if (name === "saves") LNOE.Game.renderSaves();
+    if (name === "voice" && LNOE.VoiceSettings) LNOE.VoiceSettings.render();
     if (name === "start") LNOE.Setup.ensureRendered();
   }
 

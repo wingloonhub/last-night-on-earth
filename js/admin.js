@@ -150,7 +150,7 @@
         body.innerHTML = h; return;
       }
       h += '<p class="section-help">' + turns.length + " Zombie turn(s) recorded. Newest first.</p>";
-      h += '<table class="log-table"><thead><tr>' +
+      h += '<div class="log-table-scroll"><table class="log-table"><thead><tr>' +
         "<th>#</th><th>When</th><th>Scenario</th><th>Drawn</th><th>Played</th><th>Movement</th><th>Dice</th><th>Damage</th><th>Outcome</th>" +
         "</tr></thead><tbody>";
       turns.forEach(function (t) {
@@ -167,7 +167,7 @@
         h += "<td>" + esc(t.outcome || "") + "</td>";
         h += "</tr>";
       });
-      h += "</tbody></table></div>";
+      h += "</tbody></table></div></div>";
       body.innerHTML = h;
     }).catch(function (e) {
       body.innerHTML = '<div class="card"><p class="empty-note">Could not load log: ' + esc(e.message || e) + "</p></div>";
@@ -189,7 +189,7 @@
       if (!games.length) {
         h += '<p class="empty-note">No finished games yet. End a game with “End Game” to record who won.</p>';
       } else {
-        h += '<table class="log-table"><thead><tr><th>When</th><th>Winner</th><th>Scenario</th><th>Heroes</th><th>Rounds</th><th>Zombie turns</th></tr></thead><tbody>';
+        h += '<div class="log-table-scroll"><table class="log-table"><thead><tr><th>When</th><th>Winner</th><th>Scenario</th><th>Heroes</th><th>Rounds</th><th>Zombie turns</th></tr></thead><tbody>';
         games.forEach(function (g) {
           h += "<tr><td>" + esc(fmt(g.timestamp)) + "</td>" +
             "<td>" + (g.winner === "Heroes" ? "🏆 Heroes" : "☠ Zombies") + "</td>" +
@@ -198,7 +198,7 @@
             "<td>" + esc(g.rounds || "") + "</td>" +
             "<td>" + esc(g.zombieTurns || "") + "</td></tr>";
         });
-        h += "</tbody></table>";
+        h += "</tbody></table></div>";
       }
       h += "</div>";
       body.innerHTML = h;

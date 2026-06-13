@@ -53,6 +53,23 @@
     },
     stop: function () { if (synth) synth.cancel(); if (LNOE.FX && LNOE.FX.duck) LNOE.FX.duck(false); },
 
+    // Speak a sample in a SPECIFIC voice (by name) without changing the saved
+    // choice — used to preview voices on the Voice Settings page.
+    speakWith: function (name, text) {
+      if (!synth || !text) return;
+      const v = (voices || []).find(function (x) { return x.name === name; });
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      if (v) u.voice = v;
+      u.rate = 0.82; u.pitch = 0.5; u.volume = 1;
+      synth.speak(u);
+    },
+
+    // Fire a callback whenever the device's voice list changes (loads async).
+    onVoicesChanged: function (cb) {
+      if (synth && synth.addEventListener) synth.addEventListener("voiceschanged", cb);
+    },
+
     // English voices available on this device (for the picker).
     voices: function () {
       const en = (voices || []).filter(function (v) { return /^en/i.test(v.lang); });
