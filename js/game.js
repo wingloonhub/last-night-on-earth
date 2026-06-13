@@ -49,12 +49,22 @@
   // A suspenseful, thematic line for a played card: a dread lead-in + the
   // card's own horror line.
   function cardThematic(card) {
-    return LNOE.suspenseLine() + " " + LNOE.cardNarration(card.name);
+    return titledNarration(card.name, LNOE.cardNarration(card.name));
   }
   // Just the FIRST sentence of a narration — short enough to read quickly.
   function shortSentence(text) {
     const m = (text || "").match(/^[^.!?“”]*[.!?]/);
     return (m ? m[0] : (text || "")).trim();
+  }
+  // A card's title, stripped of decorative quotes, for speaking aloud.
+  function cardTitleClean(name) { return String(name == null ? "" : name).replace(/[“”"]/g, "").trim(); }
+  // Build a reveal/narration line that SAYS THE CARD TITLE FIRST, then the
+  // short thematic line tied to what the card does.
+  function titledNarration(name, line) {
+    const t = cardTitleClean(name);
+    const body = shortSentence(line);
+    if (!body) return t;
+    return /[!?.…]$/.test(t) ? (t + " " + body) : (t + " — " + body);
   }
   // Plain-English point-form "what to do" for a Zombie card the Bot played,
   // with any die roll and target building already filled in (no buttons).
@@ -170,6 +180,7 @@
       '<div class="row mt"><button class="btn btn-green" id="trip-ok">✓ Done</button></div></div>';
     m.classList.add("open");
     document.getElementById("trip-ok").onclick = function () { m.classList.remove("open"); };
+    refreshHandSummaries();   // the played card leaves the hand immediately
     autoSave();
   }
 
@@ -180,6 +191,12 @@
     G.scenarioLoc = { primary: "", safe: "" };  // other escort scenarios: free-text spots
     G.objectiveCount = 0;   // the scenario's objective counter (kills / saved / etc.)
     G.ending = false;
+    // Rescue Mission: build runtime Townsfolk state (each starts in their building).
+    if (G.rescue) {
+      G.rescue.townsfolk = (G.rescue.townsfolk || []).map(function (t) {
+        return { name: t.name, building: t.building, status: "building", withHero: "" };
+      });
+    }
     // Starting gear from Setup: weapon names → weapon objects; cap to 2 + 4.
     G.players.forEach(function (p) {
       if (p.weapons && p.weapons.length && typeof p.weapons[0] === "string") {
@@ -200,13 +217,16 @@
     G.players.forEach(function (p) { p.dead = false; });  // track who's alive until the end
     G.introText = LNOE.scenarioIntro(G.scenario.name, G.baseSetName, G.scenario.objective) +
       "\n\n" + LNOE.castIntro(G.players);
+    if (G.rescue) {
+      G.introText += "\n\nAll Heroes begin together inside the safe house — the " + G.rescue.safehouse +
+        ". The helpless Townsfolk are scattered out in the buildings. Get three of them back to the safe house before the dead claim two.";
+    }
     newZTurn();
     resetHeroSteps();
-    renderHero();
     LNOE.switchTab("start");
     // The Start button click is a user gesture, so audio is allowed now.
     if (musicOn) LNOE.FX.startMusic(musicStage());   // continuous background music
-    playIntro();
+    renderIntro();   // dedicated opening page first — the player listens or skips
   }
 
   // Cinematic opening: dissonant stinger over the music, scary-voice story.
@@ -226,6 +246,36 @@
   }
   function stopIntro() { LNOE.TTS.stop(); }
 
+  // Dedicated opening page shown when a new game starts. The player chooses to
+  // listen to the introduction or skip straight into the game.
+  function renderIntro() {
+    let h = header();
+    h += '<div class="card intro-page" style="border-color:var(--blood-bright)">';
+    h += '<div class="step-badge">Opening</div>';
+    h += "<h2>🎬 " + esc(G.scenario.name) + "</h2>";
+    h += '<p class="section-help">' + esc(G.scenario.objective) + "</p>";
+    const paras = (G.introText || "").split("\n\n").map(function (p) {
+      return '<p style="margin:0 0 10px">' + esc(p) + "</p>";
+    }).join("");
+    h += '<div class="narration voice-on" id="g-intro">' + paras + "</div>";
+    h += '<div class="row mt">';
+    h += '<button class="btn btn-rust" id="g-intro-play">▶ Listen to the introduction</button>';
+    h += '<button class="btn btn-ghost" id="g-intro-stop">⏹ Stop</button>';
+    h += "</div>";
+    h += '<div class="row mt"><button class="btn btn-primary btn-lg" id="g-intro-start">Skip / Start the game →</button></div>';
+    h += '<p class="hint mt">Tap “Listen” to hear the opening read aloud, or start straight away. You can replay it from the Scary Voice button later.</p>';
+    h += "</div>";
+    panel().innerHTML = h;
+    wireHeader();
+    document.getElementById("g-intro-play").onclick = playIntro;
+    document.getElementById("g-intro-stop").onclick = stopIntro;
+    document.getElementById("g-intro-start").onclick = function () {
+      stopIntro();
+      renderHero();   // begin the first Hero turn
+    };
+    autoSave();
+  }
+
   function newZTurn() {
     G.zturn = { drawn: [], played: [], dice: [], movement: "", damage: "", narration: "", step: "start",
       sunNarr: "", spawnRolls: null, spawnTotal: 0, spawnDone: false, spawnCards: [], spawnCardsDone: false,
@@ -234,7 +284,7 @@
   }
 
   // Reset the ordered hero-action stepper at the start of a Hero's turn.
-  function resetHeroSteps() { G.heroStep = 0; G.heroDone = []; }
+  function resetHeroSteps() { G.heroStep = 0; G.heroDone = []; G.heroBot = { ran: false, cards: [] }; }
 
   // Indices of Heroes who are still alive.
   function aliveIndices() {
@@ -298,6 +348,7 @@
     if (p.items.length > room) p.items = p.items.slice(0, room);
     // Heroes are assumed Outdoors by default so the location is never forgotten.
     if (p.location !== "building" && p.location !== "outdoor") p.location = "outdoor";
+    if (!Array.isArray(p.sameSpace)) p.sameSpace = [];
   }
   function carriedWeapons(p) { return (p && p.weapons || []).filter(Boolean); }
   function carriedCount(p) { return carriedWeapons(p).length + ((p && p.items) || []).length; }
@@ -379,7 +430,48 @@
   // A generic counter card per scenario (zombies killed / townsfolk saved /
   // zombies in the manor). Hitting the target ends the game for that side.
   function deadHeroCount() { return G.players.filter(function (p) { return p.dead; }).length; }
+  /* ----------------------- RESCUE MISSION --------------------------- */
+  function rescueDead() { return (G.rescue.townsfolk || []).filter(function (t) { return t.status === "dead"; }).length; }
+  function rescueSaved() { return (G.rescue.townsfolk || []).filter(function (t) { return t.status === "safehouse"; }).length; }
+  function rescueStatusLabel(t) {
+    if (t.status === "dead") return "<span style='color:var(--blood-bright)'>☠ killed</span>";
+    if (t.status === "safehouse") return "<span style='color:var(--green)'>🏠 safe house</span>";
+    if (t.status === "alone") return "<span style='color:#ffb347'>🚶 alone & not safe</span>";
+    if (t.status === "hero") return "🧍 with <strong>" + esc(t.withHero || "a Hero") + "</strong>";
+    return "in the <strong>" + esc(t.building) + "</strong>";
+  }
+  function rescueTownsfolkWhere(t) {
+    if (t.status === "alone") return "alone & not safe";
+    if (t.status === "hero") return "with " + esc(t.withHero || "a Hero");
+    if (t.status === "safehouse") return "safe house";
+    return "the " + esc(t.building);
+  }
+  function rescueProtectedBuildings() {
+    if (!G.rescue) return [];
+    return [G.rescue.safehouse].concat((G.rescue.townsfolk || []).map(function (t) { return t.building; })).filter(Boolean);
+  }
+  function rescueCard() {
+    const saveT = LNOE.RESCUE_SAVE_TO_WIN || 3, deadT = LNOE.RESCUE_DEAD_TO_LOSE || 2;
+    const saved = rescueSaved(), dead = rescueDead();
+    let h = '<div class="card" id="obj-card"><h3>🎯 Rescue Mission</h3>';
+    h += '<div class="obj-kill"><span>🏠 Townsfolk in the safe house: <strong class="obj-big" style="color:var(--green)">' + saved + "</strong> / " + saveT + " to WIN</span></div>";
+    h += '<div class="obj-kill"><span>☠ Townsfolk killed: <strong class="obj-big" style="color:var(--blood-bright)">' + dead + "</strong> / " + deadT + " and the dead win</span></div>";
+    h += '<div class="mt"><strong>Townsfolk:</strong><ul style="margin:6px 0 0 18px">';
+    (G.rescue.townsfolk || []).forEach(function (t) { h += "<li>" + esc(t.name) + " — " + rescueStatusLabel(t) + "</li>"; });
+    h += "</ul></div>";
+    h += '<p class="hint mt">🏠 Safe house: <strong>' + esc(G.rescue.safehouse) + "</strong>. Update where each Townsfolk is when a Hero ends their turn. A Pit or Taken Over marker can never be placed in the safe house or a Townsfolk’s building.</p>";
+    h += "</div>";
+    return h;
+  }
+  // True if the Rescue Mission ended (and the ending was shown).
+  function checkRescueEnd() {
+    if (!G.rescue || G.ending) return false;
+    if (rescueDead() >= (LNOE.RESCUE_DEAD_TO_LOSE || 2)) { G.ending = true; showEnding("Zombies"); return true; }
+    if (rescueSaved() >= (LNOE.RESCUE_SAVE_TO_WIN || 3)) { G.ending = true; showEnding("Heroes"); return true; }
+    return false;
+  }
   function objectiveCard() {
+    if (G.rescue) return rescueCard();
     const ot = G.scenario.objTracker;
     if (!ot) return "";
     G.objectiveCount = G.objectiveCount || 0;
@@ -421,6 +513,7 @@
   // End the game early when an objective/loss condition is met.
   function checkObjectiveEnd() {
     if (!G || G.ending) return;
+    if (G.rescue) { checkRescueEnd(); return; }
     const sc = G.scenario, ot = sc.objTracker;
     if (ot && (G.objectiveCount || 0) >= ot.target) { G.ending = true; showEnding(ot.win); return; }
     if (sc.heroDeathLimit && deadHeroCount() >= sc.heroDeathLimit) { G.ending = true; showEnding("Zombies"); return; }
@@ -441,33 +534,64 @@
     let h = '<div class="move-guide"><div class="mg-head">🧠 Move each Zombie — use the FIRST that fits:</div><ol class="mg-list">';
     // 1 — general rule (no name)
     h += "<li><strong>Fight a Hero in the same space</strong> — it fights instead of moving (step 4).</li>";
-    // 2 — protect objective
-    h += "<li><strong>Protect the objective</strong>";
-    if (lcfg) {
-      // Other escort scenario (free-text): swarm the people, block the route.
+    // 2 — the scenario objective, auto-selected by scenario. Hidden entirely for
+    // scenarios that have no movement objective. Folds in chasing the carrier.
+    const scName = G.scenario.name || "";
+    const objItems = LNOE.objectiveItemsFor ? LNOE.objectiveItemsFor(scName) : [];
+    let obj2 = null;
+    if (G.rescue) {
+      const tf = G.rescue.townsfolk || [];
+      // Target Townsfolk in this order: alone & not safe → with a Hero → in a
+      // building → in the safe house. (Dead Townsfolk are skipped.)
+      const order = [
+        { st: "alone", label: "Alone &amp; not safe" },
+        { st: "hero", label: "With a Hero" },
+        { st: "building", label: "In their building" },
+        { st: "safehouse", label: "In the safe house" }
+      ];
+      const groups = order.map(function (o) {
+        return { label: o.label, list: tf.filter(function (t) { return t.status === o.st; }) };
+      }).filter(function (g) { return g.list.length; });
+      if (groups.length) {
+        obj2 = "<strong>🎯 Go for the nearest Townsfolk</strong> — in this priority:<ol style='margin:4px 0 0 18px'>";
+        groups.forEach(function (g) {
+          obj2 += "<li><strong>" + g.label + "</strong> — " +
+            g.list.map(function (t) { return esc(t.name); }).join(", ") + "</li>";
+        });
+        obj2 += "</ol>";
+      } else {
+        obj2 = "<strong>🎯 Hunt the Heroes</strong> — every Townsfolk is lost; go for the living.";
+      }
+    } else if (/defend the manor/i.test(scName)) {
+      obj2 = "<strong>🎯 Objective — push into the Manor House.</strong> Every Zombie heads for the Manor and crowds inside.";
+    } else if (lcfg) {
+      // Escort scenario (e.g. Rescue Mission) — free-text spots set above.
       if (loc.primary || loc.safe) {
-        h += " — swarm " + esc(lcfg.noun) + (loc.primary ? " at <strong>" + esc(loc.primary) + "</strong>" : "") +
+        obj2 = "<strong>🎯 Objective — protect it.</strong> Swarm " + esc(lcfg.noun) +
+          (loc.primary ? " at <strong>" + esc(loc.primary) + "</strong>" : "") +
           (loc.safe ? " and block the way to <strong>" + esc(loc.safe) + "</strong>" : "") + ".";
       } else {
-        h += " — set the " + esc(lcfg.noun) + " and safe-house spots above, then swarm them.";
+        obj2 = "<strong>🎯 Objective — protect it.</strong> Set the " + esc(lcfg.noun) + " and safe-house spots above, then swarm them.";
       }
-    } else if (carriers.length) {
-      h += " — stop " + names(carriers.map(function (c) { return c.p; })) + " from finishing it.";
-    } else {
-      h += ".";
+    } else if (objItems.length) {
+      const lbl = /escape in the truck/i.test(scName) ? "the gasoline and/or keys"
+        : /burn.{0,3}em out/i.test(scName) ? "the gasoline and/or dynamite"
+        : "the " + objItems.slice(0, 3).join(" / ");
+      if (carriers.length) {
+        obj2 = "<strong>🎯 Objective — go for " + lbl + ".</strong> Head straight for " +
+          names(carriers.map(function (c) { return c.p; })) +
+          " <span class='hint'>(carrying " + carriers.map(function (c) { return esc(c.items.join(", ")); }).join("; ") + ")</span>.";
+      } else {
+        obj2 = "<strong>🎯 Objective — go for " + lbl + ".</strong> Head for whichever Hero is closest to grabbing it.";
+      }
     }
-    h += "</li>";
-    // 3 — carrier (only if someone carries it)
-    if (carriers.length) {
-      h += "<li><strong>Chase the item carrier</strong> — " +
-        carriers.map(function (c) { return nm(c.p) + " <span class='hint'>(" + esc(c.items.join(", ")) + ")</span>"; }).join(", ") + "</li>";
-    }
-    // 4 — nearest (list the candidate Heroes by name)
+    if (obj2) h += "<li>" + obj2 + "</li>";
+    // nearest (list the candidate Heroes by name)
     h += "<li><strong>Go to the closest</strong> — " + names(alive) + "</li>";
-    // 5 — weakest (name them)
+    // weakest (name them)
     if (unarmed.length) h += "<li><strong>Hit the weakest</strong> — " + names(unarmed) + " <span class='hint'>(no weapon)</span></li>";
     else h += "<li><strong>Hit the weakest</strong> — " + names(alive) + " <span class='hint'>(go for the most wounded)</span></li>";
-    // 6 — closest building (no Hero)
+    // closest building (no Hero)
     h += "<li><strong>Go to the closest building.</strong></li>";
     h += "</ol></div>";
     return h;
@@ -544,7 +668,8 @@
       const carryFull = total >= CARRY_MAX;
       let h = '<div class="hero-inv' + (p.dead ? " dead" : "") + '">';
       h += '<div class="hero-inv-top">';
-      h += '<span class="ps-name">' + (p.dead ? "☠ " : "🧍 ") + esc(p.hero) + ' <span class="hint">(' + esc(p.name) + ")</span></span>";
+      const gBadge = p.gender === "M" ? " ♂" : p.gender === "F" ? " ♀" : "";
+      h += '<span class="ps-name">' + (p.dead ? "☠ " : "🧍 ") + esc(p.hero) + gBadge + ' <span class="hint">(' + esc(p.name) + ")</span></span>";
       h += '<span class="hint inv-count">Carrying ' + total + "/" + CARRY_MAX + " · weapons " + ws.length + "/" + WEAPON_MAX + "</span>";
       h += '<button class="btn ' + (p.dead ? "btn-green" : "btn-ghost") + '" data-dead="' + i + '">' + (p.dead ? "Bring back" : "Mark dead ☠") + "</button>";
       h += "</div>";
@@ -557,6 +682,12 @@
       h += "</div>";
       if (loc === "building" && p.building) h += '<span class="hint">in the <strong>' + esc(p.building) + "</strong></span>";
       h += "</div>";
+      // Who shares this Hero's space (set when they end their turn).
+      const mates = (p.sameSpace || []).filter(Boolean);
+      if (mates.length) {
+        h += '<div class="inv-line"><span class="inv-tag">🤝 Same space</span><span class="hint">with <strong>' +
+          mates.map(esc).join("</strong>, <strong>") + "</strong></span></div>";
+      }
       // Weapons (max 2 of the 4).
       h += '<div class="inv-line"><span class="inv-tag">🗡 Weapons</span>';
       ws.forEach(function (w, wi) {
@@ -714,6 +845,17 @@
     const p = G.players[i];
     return { idx: i, hero: p.hero, heroName: p.name, loc: p.location || "", building: p.building || "" };
   }
+  // Would playing this card right now actually affect a Hero? The Bot HOLDS
+  // cards that would do nothing (rather than wasting them) — e.g. Surprise
+  // Attack with no Hero inside a building.
+  function cardHasImpact(c) {
+    const n = (c.name || "").toLowerCase();
+    if (n.indexOf("surprise attack") > -1) {
+      // Needs a living Hero who is inside a building.
+      return aliveIndices().some(function (i) { return G.players[i].location === "building"; });
+    }
+    return true;
+  }
   // Every board location the Bot could target: buildings + labelled spawning pits.
   function allAreas() {
     const out = [];
@@ -725,14 +867,23 @@
   // The pool of legal targets for a given card.
   function targetPoolFor(card) {
     const t = (card && card.text) || "";
+    // Rescue Mission: a Taken Over marker / new Pit can never hit the safe house
+    // or a Townsfolk's building — keep those out of the target pool.
+    const blocked = rescueProtectedBuildings();
+    const allow = function (a) { return blocked.indexOf(a) === -1; };
     if (cardNoBuilding(t)) {
       // Must avoid buildings — use spawning pits / areas that are not buildings.
       const blds = (G && G.buildings) || [];
-      const areas = ((G && G.spawnAreas) || []).filter(function (a) { return blds.indexOf(a) === -1; });
-      return areas.length ? areas : allAreas();
+      const areas = ((G && G.spawnAreas) || []).filter(function (a) { return blds.indexOf(a) === -1 && allow(a); });
+      const fb = allAreas().filter(allow);
+      return areas.length ? areas : (fb.length ? fb : allAreas());
     }
-    if (cardNeedsBuilding(t)) return (G && G.buildings) || [];
-    return allAreas();
+    if (cardNeedsBuilding(t)) {
+      const blds = ((G && G.buildings) || []).filter(allow);
+      return blds.length ? blds : ((G && G.buildings) || []);
+    }
+    const all = allAreas().filter(allow);
+    return all.length ? all : allAreas();
   }
 
   // The Bot's automatic turn: draw to refill its hidden hand, then play the
@@ -742,7 +893,6 @@
   // point-form play (target/hero/roll baked in). Returns the play object.
   function playDrawCard(c) {
     G.bot.playFromHand(c.uid);
-    G.zturn.played.push(c.name);
     // If the card targets a board location, pick one and always say what
     // happens to it in the narration — naming the chosen area when one is
     // configured, or speaking of "the building/area" generically otherwise.
@@ -760,8 +910,12 @@
     // Cornered is a turn-long effect: every Zombie rolls 2 extra fight dice
     // until the next Zombie turn. Flag it so the fight boxes add the dice.
     if (/cornered/i.test(c.name)) G.cornered = true;
-    // Short narration: one sentence, not the long thematic reading.
-    const narr = shortSentence(needsTarget ? LNOE.cardBuildingNarration(c.name, target) : LNOE.cardNarration(c.name));
+    // Narration: SAY THE CARD TITLE FIRST, then one short thematic sentence,
+    // and NAME the Hero/building the card actually hits.
+    let narr = titledNarration(c.name, needsTarget ? LNOE.cardBuildingNarration(c.name, target) : LNOE.cardNarration(c.name));
+    if ((needsHero || isShamble) && hp && hp.hero) {
+      narr += " It comes for " + hp.hero + (needsHero && hp.building ? " in the " + hp.building : "") + ".";
+    }
     const pl = { name: c.name, simple: c.simple, text: c.text, remains: c.remains, timing: c.timing,
       narration: narr, target: target, roll: roll, heroPref: heroPref, heroStrict: heroStrict,
       hero: hp ? hp.hero : null, heroName: hp ? hp.heroName : "", heroLoc: hp ? hp.loc : "",
@@ -776,23 +930,140 @@
     // spawn cards (Relentless Advance, There's Too Many) play in step 5.
     const played = [];
     const done = {};   // uids already resolved (guards Oh the Horror cascades / reshuffles)
-    const queue = G.bot.hand.filter(function (c) { return cardPhase(c) === "draw"; });
+    // Only play DRAW-phase cards that would actually affect a Hero — no-impact
+    // cards (e.g. Surprise Attack with no Hero in a building) stay held.
+    const queue = G.bot.hand.filter(function (c) { return cardPhase(c) === "draw" && cardHasImpact(c); });
     while (queue.length) {
       const c = queue.shift();
       if (done[c.uid]) continue;
       done[c.uid] = true;
+      G.zturn.played.push(c.name);
       played.push(playDrawCard(c));
       // "Oh the Horror!": the Zombie draws 3 more cards. Any of those that are
-      // also draw-phase get played and shown this turn too.
+      // also draw-phase (and have an effect) get played and shown this turn too.
       if (/horror/i.test(c.name)) {
         for (let i = 0; i < 3; i++) { const nc = G.bot.draw(); if (nc) G.zturn.drawn.push(nc.name); }
         G.bot.hand.forEach(function (hc) {
-          if (!done[hc.uid] && cardPhase(hc) === "draw") queue.push(hc);
+          if (!done[hc.uid] && cardPhase(hc) === "draw" && cardHasImpact(hc)) queue.push(hc);
         });
       }
     }
     G.bot.capHand(4);   // the Zombie keeps at most 4 cards in hand
     return { played: played };
+  }
+
+  // Start-of-turn play on a HERO's turn: the Zombie draws one card and may play
+  // any DRAW-phase ("start of any turn") cards it then holds — the same cards it
+  // plays during its own Draw step. Returns the cards played.
+  function runHeroStartBot() {
+    G.bot.draw();   // the Zombie's ongoing card flow
+    const played = [];
+    const done = {};
+    const queue = G.bot.hand.filter(function (c) { return cardPhase(c) === "draw" && cardHasImpact(c); });
+    while (queue.length) {
+      const c = queue.shift();
+      if (done[c.uid]) continue;
+      done[c.uid] = true;
+      played.push(playDrawCard(c));
+      if (/horror/i.test(c.name)) {
+        for (let i = 0; i < 3; i++) { G.bot.draw(); }
+        G.bot.hand.forEach(function (hc) {
+          if (!done[hc.uid] && cardPhase(hc) === "draw" && cardHasImpact(hc)) queue.push(hc);
+        });
+      }
+    }
+    G.bot.capHand(4);
+    return played;
+  }
+
+  function speakHeroCard(idx) {
+    const cards = (G.heroBot && G.heroBot.cards) || [];
+    const p = cards[idx];
+    if (!p || !voiceOn) return;
+    setTimeout(function () { LNOE.TTS.speak(stripQuotes(p.narration)); }, 350);
+  }
+
+  // Show the Zombie's start-of-turn play on a Hero turn, ONE card at a time:
+  // the player ticks each card as played before the next is revealed and read.
+  function renderHeroReveal() {
+    const out = document.getElementById("h-bot-out");
+    if (!out) return;
+    const hb = G.heroBot || {};
+    if (!hb.ran) { out.innerHTML = ""; return; }
+    const cards = hb.cards || [];
+    if (!cards.length) {
+      out.innerHTML = '<p class="hint">The Zombie draws in the dark… nothing to play at the start of this turn.</p>';
+      return;
+    }
+    const ticked = hb.ticked || 0;
+    const total = cards.length;
+    const lastIdx = Math.min(ticked, total - 1);   // newest card revealed so far
+    let html = total > 1
+      ? '<p class="hint">Card <strong>' + Math.min(ticked + 1, total) + '</strong> of <strong>' + total +
+        '</strong> — play each one on the board, then tick it to reveal the next.</p>'
+      : "";
+    for (let idx = 0; idx <= lastIdx; idx++) {
+      const p = cards[idx];
+      const isCurrent = (idx === ticked);
+      const isDone = idx < ticked;
+      html += '<div class="card-draw' + (isDone ? " reveal-done" : "") + '">';
+      html += '<div class="ctype">' + (p.remains ? "Zombie Event · Stays in play" : "Zombie Event") + (isDone ? " · ✓ played" : "") + "</div>";
+      html += '<div class="ctitle">' + esc(p.name) + "</div>";
+      if (p.remains) html += '<span class="pill tag-remains">Stays in play</span>';
+      html += '<div class="rnarr" id="hb-narr-' + idx + '">“' + esc(p.narration) + '”</div>';
+      html += '<div class="csimple"><strong>What to do:</strong><ul class="zc-steps" id="hb-steps-' + idx + '">' +
+        p.steps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") + "</ul></div>";
+      if (isCurrent) {
+        if (p.hero) {
+          html += '<div class="mt"><a href="#" class="hb-reroll hint" data-i="' + idx + '" data-kind="hero">🧍 Pick a different Hero</a></div>';
+        } else if (cardNeedsTarget(p.text)) {
+          html += '<div class="mt"><a href="#" class="hb-reroll hint" data-i="' + idx + '">🎲 ' +
+            (cardNoBuilding(p.text) ? "Pick a different area" : "Pick a different building") + "</a></div>";
+        }
+        if (cardCanLose(p.text)) {
+          html += '<div class="mt"><span class="hint">If this empties the Hero deck, the Heroes lose the game.</span><br>' +
+            '<button class="btn btn-primary hb-lose mt">☠ Hero deck is empty — Heroes lose</button></div>';
+        }
+        // A tick only when another card waits behind this one.
+        if (ticked + 1 < total) {
+          html += '<div class="mt"><button class="btn btn-green hb-tick">✓ I’ve played this — reveal the next card ▶</button></div>';
+        }
+      }
+      html += "</div>";
+    }
+    out.innerHTML = html;
+
+    out.querySelectorAll(".hb-reroll").forEach(function (b) {
+      b.onclick = function (e) {
+        e.preventDefault();
+        const p = cards[+b.dataset.i];
+        if (b.dataset.kind === "hero") {
+          const hp = pickHeroPref(p.heroPref || "building", p.heroStrict);
+          p.hero = hp ? hp.hero : null; p.heroName = hp ? hp.heroName : ""; p.heroLoc = hp ? hp.loc : "";
+          p.heroBuilding = hp ? hp.building : "";
+        } else {
+          const newT = pickFrom(targetPoolFor({ text: p.text }));
+          p.target = newT;
+          p.narration = titledNarration(p.name, LNOE.cardBuildingNarration(p.name, newT));
+        }
+        p.steps = zombieCardSteps(p);
+        renderHeroReveal();
+        autoSave();
+        LNOE.FX.groan();
+      };
+    });
+    out.querySelectorAll(".hb-lose").forEach(function (b) {
+      b.onclick = function () { showEnding("Zombies"); };
+    });
+    out.querySelectorAll(".hb-tick").forEach(function (b) {
+      b.onclick = function () {
+        G.heroBot.ticked = (G.heroBot.ticked || 0) + 1;
+        const next = G.heroBot.ticked;
+        renderHeroReveal();
+        autoSave();
+        if (next < total) { LNOE.FX.groan(); speakHeroCard(next); }  // read the newly revealed card
+      };
+    });
   }
 
   // Play the SPAWN-phase cards the Zombie is holding (There's Too Many,
@@ -804,7 +1075,7 @@
       G.bot.playFromHand(c.uid);
       G.zturn.played.push(c.name);
       const roll = cardNeedsRoll(c.text) ? (1 + Math.floor(Math.random() * 6)) : 0;
-      const narr = shortSentence(LNOE.cardNarration(c.name));
+      const narr = titledNarration(c.name, LNOE.cardNarration(c.name));
       const pl = { name: c.name, simple: c.simple, text: c.text, remains: c.remains, narration: narr, roll: roll };
       pl.steps = zombieCardSteps(pl);
       out.push(pl);
@@ -877,21 +1148,6 @@
     let h = header();
     h += objectiveCard();
 
-    if (G.round === 1 && G.playerIndex === 0 && G.turnNumber === 0) {
-      h += '<div class="card" style="border-color:var(--blood-bright)">';
-      h += '<h3>🎬 ' + esc(G.scenario.name) + "</h3>";
-      const paras = G.introText.split("\n\n").map(function (p) {
-        return '<p style="margin:0 0 10px">' + esc(p) + "</p>";
-      }).join("");
-      h += '<div class="narration voice-on" id="g-intro">' + paras + "</div>";
-      h += '<div class="row mt">';
-      h += '<button class="btn btn-rust" id="g-intro-play">▶ Play opening (voice + sound)</button>';
-      h += '<button class="btn btn-ghost" id="g-intro-stop">⏹ Stop</button>';
-      h += "</div>";
-      h += '<p class="hint mt">The opening plays aloud when the game starts. Tap Play to hear it again.</p>';
-      h += "</div>";
-    }
-
     const _alive = aliveIndices();
     const _pos = _alive.indexOf(G.playerIndex) + 1;
     h += '<div class="turn-banner hero-turn">';
@@ -899,6 +1155,13 @@
     h += '<div class="who">▶ Now playing: ' + esc(p.hero) + ' <span style="color:var(--muted);font-size:15px">— ' + esc(p.name) + "</span></div>";
     // Current hero's gear, so it stays visible while you scroll.
     h += '<div class="banner-gear">' + esc(bannerGearText(p)) + "</div>";
+    h += "</div>";
+
+    // Start-of-turn: the Zombie plays any start-of-turn card automatically.
+    h += '<div class="card"><h3>☠ Start of turn — the Zombie may strike</h3>';
+    h += '<p class="section-help">The Zombie automatically plays any start-of-turn card now (the same ones it plays during its Draw step). Apply each one to the board, then carry on with your actions.</p>';
+    h += '<div id="h-bot-out" class="mt"></div>';
+    h += '<hr class="divider">' + botHandSummary();
     h += "</div>";
 
     h += '<div class="card"><h3>Your actions this turn — do them in order</h3>';
@@ -975,10 +1238,23 @@
     panel().innerHTML = h;
     wireHeader();
 
-    const introPlay = document.getElementById("g-intro-play");
-    if (introPlay) introPlay.onclick = playIntro;
-    const introStop = document.getElementById("g-intro-stop");
-    if (introStop) introStop.onclick = stopIntro;
+    // Start-of-turn Zombie play happens AUTOMATICALLY (once per Hero turn): the
+    // Zombie draws 1 and plays any start-of-turn cards. Reads the first card; if
+    // more than one, the player ticks each before the next is revealed/read.
+    if (!(G.heroBot && G.heroBot.ran)) {
+      const played = runHeroStartBot();
+      G.heroBot = { ran: true, cards: played, ticked: 0 };
+      renderHeroReveal();
+      refreshHandSummaries();
+      autoSave();
+      if (played.length) {
+        LNOE.FX.stinger();
+        setTimeout(function () { LNOE.FX.groan(); }, 250);
+        speakHeroCard(0);   // read ONLY the first card
+      }
+    } else {
+      renderHeroReveal();   // restore at the current ticked position on re-render
+    }
 
     panel().querySelectorAll(".step.active [data-act]").forEach(function (btn) {
       btn.onclick = function () {
@@ -1046,45 +1322,82 @@
     autoSave();
   }
 
-  // On ending a Hero's turn, confirm where they finished. Outdoors is the
-  // default; "In a building" then asks WHICH building (dropdown). Runs onDone().
+  // On ending a Hero's turn, confirm where they finished — ONE dropdown:
+  // Outdoors (default) or a building. Captures the building name in one pick.
   function askHeroLocation(p, onDone) {
     let m = document.getElementById("loc-modal");
     if (!m) { m = document.createElement("div"); m.id = "loc-modal"; m.className = "modal-overlay"; document.body.appendChild(m); }
-    function close() { m.classList.remove("open"); }
-    function finish(loc, building) { p.location = loc; p.building = building || ""; close(); autoSave(); onDone(); }
-
-    function paint(step) {
-      let h = '<div class="modal-card"><h3>📍 ' + esc(p.hero) + '’s position</h3>';
-      if (step === "building") {
-        const blds = G.buildings || [];
-        h += '<p>Which <strong>building</strong> is <strong>' + esc(p.hero) + '</strong> finishing the turn in?</p>';
-        if (blds.length) {
-          h += '<label class="field">Building<select id="loc-which"><option value="">— choose a building —</option>' +
-            blds.map(function (b) { return '<option value="' + esc(b) + '"' + (p.building === b ? " selected" : "") + ">" + esc(b) + "</option>"; }).join("") +
-            "</select></label>";
-        } else {
-          h += '<p class="hint">No buildings were tagged in Setup — you can still confirm; just note the spot on the board.</p>';
-        }
-        h += '<div class="row mt"><button class="btn" id="loc-back">← Back</button>' +
-          '<button class="btn btn-green" id="loc-confirm">✓ Confirm &amp; end turn</button></div></div>';
-        m.innerHTML = h; m.classList.add("open");
-        document.getElementById("loc-back").onclick = function () { paint("ask"); };
-        document.getElementById("loc-confirm").onclick = function () {
-          const sel = document.getElementById("loc-which");
-          finish("building", sel ? sel.value : "");
-        };
-      } else {
-        h += '<p>Is <strong>' + esc(p.hero) + '</strong> finishing the turn <strong>inside a building</strong>?</p>';
-        h += '<p class="hint">If not, they’re Outdoors. This is what Zombie cards like Surprise Attack and Shamble target.</p>';
-        h += '<div class="row mt"><button class="btn btn-green" id="loc-yes">🏚 In a building</button>' +
-          '<button class="btn btn-primary" id="loc-no">🌲 Outdoors</button></div></div>';
-        m.innerHTML = h; m.classList.add("open");
-        document.getElementById("loc-yes").onclick = function () { paint("building"); };
-        document.getElementById("loc-no").onclick = function () { finish("outdoor", ""); };
-      }
+    const blds = G.buildings || [];
+    const cur = p.location === "building" ? (p.building || "") : "__out";
+    let h = '<div class="modal-card"><h3>📍 ' + esc(p.hero) + '’s position</h3>';
+    h += '<p>Where did <strong>' + esc(p.hero) + '</strong> finish the turn?</p>';
+    h += '<label class="field">Location<select id="loc-where">';
+    h += '<option value="__out"' + (cur === "__out" ? " selected" : "") + ">🌲 Outdoors</option>";
+    if (blds.length) {
+      h += '<optgroup label="🏚 In a building">';
+      blds.forEach(function (b) { h += '<option value="' + esc(b) + '"' + (cur === b ? " selected" : "") + ">" + esc(b) + "</option>"; });
+      h += "</optgroup>";
     }
-    paint("ask");
+    h += "</select></label>";
+    // Same screen: who else is in this Hero's space.
+    const others = aliveIndices().map(function (i) { return G.players[i]; }).filter(function (q) { return q !== p; });
+    if (others.length) {
+      h += '<p style="margin:14px 0 6px">Any other Hero in the <strong>same space</strong>? <span class="hint">(tick all that apply — leave blank if alone)</span></p>';
+      h += '<div class="checks">';
+      others.forEach(function (q) {
+        const on = (p.sameSpace || []).indexOf(q.hero) > -1;
+        h += '<label class="chk' + (on ? " chk-on" : "") + '"><input type="checkbox" class="loc-mate" value="' + esc(q.hero) + '"' + (on ? " checked" : "") +
+          "> " + esc(q.hero) + "</label>";
+      });
+      h += "</div>";
+    }
+    // Rescue Mission: confirm where each Townsfolk is now.
+    if (G.rescue) {
+      const aliveHeroes = aliveIndices().map(function (i) { return G.players[i]; });
+      h += '<p style="margin:16px 0 6px"><strong>🆘 Where are the Townsfolk now?</strong></p>';
+      (G.rescue.townsfolk || []).forEach(function (t, ti) {
+        const curVal = t.status === "safehouse" ? "safehouse" : t.status === "dead" ? "dead" : t.status === "alone" ? "alone" : t.status === "hero" ? ("hero:" + t.withHero) : "building";
+        h += '<label class="field" style="margin:0 0 8px">' + esc(t.name) + "<select class='loc-tf' data-i='" + ti + "'>";
+        h += '<option value="building"' + (curVal === "building" ? " selected" : "") + ">🏚 In the " + esc(t.building) + "</option>";
+        if (aliveHeroes.length) {
+          h += '<optgroup label="🧍 With a Hero">';
+          aliveHeroes.forEach(function (q) { h += '<option value="hero:' + esc(q.hero) + '"' + (curVal === "hero:" + q.hero ? " selected" : "") + ">" + esc(q.hero) + "</option>"; });
+          h += "</optgroup>";
+        }
+        h += '<option value="alone"' + (curVal === "alone" ? " selected" : "") + ">🚶 Alone &amp; Not Safe</option>";
+        h += '<option value="safehouse"' + (curVal === "safehouse" ? " selected" : "") + ">🏠 Safe house</option>";
+        h += '<option value="dead"' + (curVal === "dead" ? " selected" : "") + ">☠ Killed</option>";
+        h += "</select></label>";
+      });
+    }
+    h += '<div class="row mt"><button class="btn btn-green" id="loc-confirm">✓ Confirm &amp; end turn</button>' +
+      '<button class="btn btn-ghost" id="loc-cancel">Cancel</button></div></div>';
+    m.innerHTML = h; m.classList.add("open");
+    document.getElementById("loc-cancel").onclick = function () { m.classList.remove("open"); };
+    m.querySelectorAll(".loc-mate").forEach(function (cb) {
+      cb.onchange = function () { cb.closest(".chk").classList.toggle("chk-on", cb.checked); };
+    });
+    document.getElementById("loc-confirm").onclick = function () {
+      const v = document.getElementById("loc-where").value;
+      if (v === "__out") { p.location = "outdoor"; p.building = ""; }
+      else { p.location = "building"; p.building = v; }
+      p.sameSpace = Array.prototype.map.call(m.querySelectorAll(".loc-mate:checked"), function (c) { return c.value; });
+      // Apply Townsfolk updates (Rescue Mission).
+      if (G.rescue) {
+        m.querySelectorAll(".loc-tf").forEach(function (sel) {
+          const t = G.rescue.townsfolk[+sel.dataset.i]; if (!t) return;
+          const val = sel.value;
+          if (val === "safehouse") { t.status = "safehouse"; t.withHero = ""; }
+          else if (val === "dead") { t.status = "dead"; t.withHero = ""; }
+          else if (val === "alone") { t.status = "alone"; t.withHero = ""; }
+          else if (val.indexOf("hero:") === 0) { t.status = "hero"; t.withHero = val.slice(5); }
+          else { t.status = "building"; t.withHero = ""; }
+        });
+      }
+      m.classList.remove("open"); autoSave();
+      if (G.rescue && checkRescueEnd()) return;   // game ended — don't continue the turn
+      onDone();
+    };
   }
 
   function botHandSummary() {
@@ -1140,8 +1453,7 @@
 
     // 2 · The Zombie plays its own cards — automatically and in secret.
     h += '<div class="card"><h3>2 · Draw Zombie cards</h3>';
-    h += '<p class="section-help">The Zombie draws and chooses its own cards in secret — you don’t control it. Reveal only what it decides to play this turn, then apply each effect to the board.</p>';
-    h += '<button class="btn btn-rust btn-lg" id="z-run">☠ Reveal the Zombie’s play</button>';
+    h += '<p class="section-help">The Zombie draws and plays its cards automatically. Apply each one to the board — if it plays more than one, tick each before the next is revealed.</p>';
     h += '<div id="z-run-out" class="mt"></div>';
     h += '<hr class="divider">' + botHandSummary();
     h += '<div id="z-played" class="mt"></div>';
@@ -1284,7 +1596,7 @@
         } else {
           const newT = pickFrom(targetPoolFor({ text: p.text }));
           p.target = newT;
-          p.narration = shortSentence(LNOE.cardBuildingNarration(p.name, newT));
+          p.narration = titledNarration(p.name, LNOE.cardBuildingNarration(p.name, newT));
         }
         p.steps = zombieCardSteps(p);
         renderZombieReveal();
@@ -1309,32 +1621,29 @@
   function wireZombie() {
     document.getElementById("z-speak").onclick = function () { LNOE.TTS.speak(stripQuotes(G.zturn.narration)); };
 
-    document.getElementById("z-run").onclick = function () {
-      const out = document.getElementById("z-run-out");
-      if (G.zturn.botRan) return;
+    // The Zombie draws and plays AUTOMATICALLY (once per Zombie turn). Reads the
+    // first card; if more than one, the player ticks each before the next.
+    const out = document.getElementById("z-run-out");
+    if (!G.zturn.botRan) {
       if (G.bot.deckEmpty() && !G.bot.hand.length) {
-        out.innerHTML = '<p class="empty-note">The Zombie deck for this set is empty. Add cards in the Admin tab, or pick the base game.</p>';
-        return;
+        if (out) out.innerHTML = '<p class="empty-note">The Zombie deck for this set is empty. Add cards in the Admin tab, or pick the base game.</p>';
+        G.zturn.botRan = true;
+      } else {
+        const result = runBotTurn();
+        G.zturn.revealCards = result.played;
+        G.zturn.revealTicked = 0;                 // how many the player has ticked as played
+        G.zturn.revealEmpty = !result.played.length;
+        G.zturn.botRan = true;
+        narrationMusic(14000); // horror background music for the reveal
+        LNOE.FX.stinger();
+        setTimeout(function () { LNOE.FX.groan(); }, 300);
+        renderZombieReveal();
+        refreshHandSummaries();   // hand count drops the instant cards are played
+        renderPlayed();
+        if (result.played.length) speakReveal(0);  // read ONLY the first card
       }
-      const result = runBotTurn();
-      G.zturn.revealCards = result.played;
-      G.zturn.revealTicked = 0;                 // how many the player has ticked as played
-      G.zturn.revealEmpty = !result.played.length;
-      G.zturn.botRan = true;
-      this.disabled = true; this.textContent = "☠ The Zombie has played";
-      narrationMusic(14000); // horror background music for the reveal
-      LNOE.FX.stinger();
-      setTimeout(function () { LNOE.FX.groan(); }, 300);
-      renderZombieReveal();
-      if (result.played.length) speakReveal(0);  // read ONLY the first card
-      refreshHandSummaries();
-      renderPlayed();
-    };
-    // After a re-render (e.g. returning from a fight), restore the reveal where
-    // the player left off — same disabled button, same ticked-so-far cards.
-    if (G.zturn.botRan) {
-      const zr = document.getElementById("z-run");
-      if (zr) { zr.disabled = true; zr.textContent = "☠ The Zombie has played"; }
+    } else {
+      // Restore the reveal where the player left off after a re-render.
       renderZombieReveal();
     }
 
@@ -1466,11 +1775,15 @@
   // Mid-game, a new pit can only be tagged on a building that is on the board
   // and not already a pit — same rule as Setup.
   function spawnAddControl() {
-    const avail = ((G.buildings) || []).filter(function (b) { return (G.spawnAreas || []).indexOf(b) === -1; });
+    const protectedB = rescueProtectedBuildings();
+    const avail = ((G.buildings) || []).filter(function (b) {
+      return (G.spawnAreas || []).indexOf(b) === -1 && protectedB.indexOf(b) === -1;
+    });
+    const note = protectedB.length ? '<p class="hint">🚫 A Pit can’t go in the safe house or a Townsfolk’s building.</p>' : "";
     if (!avail.length) {
-      return '<p class="hint">Every building on your board is already a pit (or none were selected — add buildings in Setup).</p>';
+      return note + '<p class="hint">Every building on your board is already a pit (or none were selected — add buildings in Setup).</p>';
     }
-    let s = '<div class="row" style="align-items:center"><select id="z-newpit" style="flex:2"><option value="">— tag a building as a new pit —</option>';
+    let s = note + '<div class="row" style="align-items:center"><select id="z-newpit" style="flex:2"><option value="">— tag a building as a new pit —</option>';
     avail.forEach(function (b) { s += '<option value="' + esc(b) + '">' + esc(b) + "</option>"; });
     s += '</select><button class="btn" id="z-addpit" style="flex:0 0 auto">+ Add pit</button></div>';
     return s;
@@ -1611,6 +1924,7 @@
     const choice = botDecideIntervention(r.context);
     if (choice) {
       G.bot.playFromHand(choice.uid);
+      refreshHandSummaries();   // the card leaves the hand the instant it's played
       const narr = announceBotCard(choice);
       r.steps.push({ who: "bot", card: choice.name, label: "Zombie plays " + choice.name + ".",
         simple: choice.simple, narration: narr });
@@ -1883,7 +2197,7 @@
       if (rev) rev.onclick = function () {
         const survivors = G.players.filter(function (p, i) { return survived[i]; });
         const fallen = G.players.filter(function (p, i) { return !survived[i]; });
-        const text = LNOE.endingNarration(winner, survivors, fallen);
+        const text = LNOE.endingNarration(winner, survivors, fallen, G.scenario.name);
         narrationMusic();
         LNOE.FX.stinger();
         if (winner === "Heroes") setTimeout(function () { LNOE.FX.whack(); }, 300);
@@ -1924,11 +2238,11 @@
       expansions: G.expansions, scenario: G.scenario,
       players: G.players, buildings: G.buildings || [], spawnAreas: G.spawnAreas || [],
       advanced: G.advanced, startedAt: G.startedAt, introText: G.introText,
-      scenarioLoc: G.scenarioLoc, objectiveCount: G.objectiveCount, ending: G.ending,
+      scenarioLoc: G.scenarioLoc, objectiveCount: G.objectiveCount, ending: G.ending, rescue: G.rescue,
       cornered: G.cornered,
       sunMax: G.sunMax, sun: G.sun, round: G.round, turnNumber: G.turnNumber,
       playerIndex: G.playerIndex, phase: G.phase,
-      zturn: G.zturn, heroStep: G.heroStep, heroDone: G.heroDone,
+      zturn: G.zturn, heroStep: G.heroStep, heroDone: G.heroDone, heroBot: G.heroBot,
       bot: { setKey: G.bot.setKey, advanced: G.bot.advanced,
              drawPile: G.bot.drawPile, discard: G.bot.discard, hand: G.bot.hand }
     };
@@ -1956,11 +2270,12 @@
       players: state.players || [], buildings: state.buildings || [], spawnAreas: state.spawnAreas || [],
       advanced: state.advanced, startedAt: state.startedAt, introText: state.introText,
       scenarioLoc: state.scenarioLoc || { primary: "", safe: "" },
-      objectiveCount: state.objectiveCount || 0, ending: state.ending || false,
+      objectiveCount: state.objectiveCount || 0, ending: state.ending || false, rescue: state.rescue || null,
       cornered: state.cornered || false,
       sunMax: state.sunMax, sun: state.sun, round: state.round, turnNumber: state.turnNumber,
       playerIndex: state.playerIndex, phase: state.phase,
-      zturn: state.zturn || {}, heroStep: state.heroStep || 0, heroDone: state.heroDone || []
+      zturn: state.zturn || {}, heroStep: state.heroStep || 0, heroDone: state.heroDone || [],
+      heroBot: state.heroBot || { ran: false, cards: [] }
     };
     const b = new LNOE.Bot(state.bot.setKey, state.bot.advanced);
     b.drawPile = state.bot.drawPile || [];

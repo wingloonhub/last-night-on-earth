@@ -260,11 +260,41 @@
     if (items.length === 2) return items[0] + " and " + items[1];
     return items.slice(0, -1).join(", ") + ", and " + items[items.length - 1];
   }
-  LNOE.endingNarration = function (winner, survivors, fallen) {
+  // Scenario-specific HEROES-WIN endings. Each ends on a "Last Night on Earth"
+  // line; the surviving characters are blended in just before that line.
+  LNOE.scenarioEndings = {
+    "Defend the Manor House": "The heroes stayed inside the Manor House and fought all night. The zombies broke the doors and smashed the windows, but the heroes did not run away. They helped each other, fought bravely, and stopped the zombies from taking the house. When the sun came up, the Manor House was still standing. They had survived the Last Night on Earth.",
+    "Escape in the Truck": "The heroes found the truck and got it started. The zombies were getting closer, but the heroes jumped in quickly. The truck rushed down the road and left the town behind. Everyone was scared, but they were safe. They had escaped the Last Night on Earth.",
+    "Rescue Mission": "The heroes searched the town for people who needed help. The streets were dangerous, and zombies were everywhere. But the heroes did not give up. They found the survivors and brought them to safety. Because of their bravery, everyone lived through the Last Night on Earth.",
+    "Die, Zombies, Die!": "The heroes fought the zombies again and again. The zombies kept coming, but the heroes stood strong. At last, the final zombie fell, and the town became quiet. The heroes were tired, but they had won. They had beaten the Last Night on Earth.",
+    "Burn 'Em Out!": "The heroes found the zombie nest and set it on fire. Bright flames filled the night as the zombies were destroyed. The heroes watched until the danger was gone. When morning came, the town was safe again. They had survived the Last Night on Earth.",
+    "Save the Townsfolk": "The heroes ran through the town to save the townsfolk. Some people were hiding, and some were trapped. The heroes helped them escape before the zombies could reach them. When the sun rose, the townsfolk were safe. Together, they lived through the Last Night on Earth."
+  };
+  // Weave the living (and any fallen) into a scenario ending, just before its
+  // final "Last Night on Earth" line.
+  LNOE.blendScenarioEnding = function (base, survivors, fallen) {
+    const sentences = base.match(/[^.!?]+[.!?]+/g) || [base];
+    let idx = -1;
+    sentences.forEach(function (s, i) { if (/last night on earth/i.test(s)) idx = i; });
+    const body = (idx > 0 ? sentences.slice(0, idx).join("") : (idx === 0 ? "" : base)).trim();
+    const finale = idx > -1 ? sentences[idx].trim() : "";
+    const surv = joinList(survivors.map(function (p) { return p.hero; }));
+    const fell = joinList(fallen.map(function (p) { return p.hero; }));
+    let blend = "";
+    if (surv) blend = surv + (survivors.length === 1 ? " was" : " were") + " still standing when it was over" +
+      (fell ? ", though " + fell + " did not make it" : "") + ". ";
+    else if (fell) blend = "The cost was heavy — " + fell + " did not make it. ";
+    return (body ? body + " " : "") + blend + finale;
+  };
+
+  LNOE.endingNarration = function (winner, survivors, fallen, scenarioName) {
     // Survivors: name the CHARACTER (and the player). Fallen: character only.
     const surv = joinList(survivors.map(function (p) { return p.hero + " (" + p.name + ")"; }));
     const fell = joinList(fallen.map(function (p) { return p.hero; }));
     if (winner === "Heroes") {
+      // Use the scenario's own victory ending when we have one.
+      const base = scenarioName && LNOE.scenarioEndings[scenarioName];
+      if (base) return LNOE.blendScenarioEnding(base, survivors, fallen);
       let s = "Dawn breaks at last over the town. The gunfire stops. The moaning fades into the morning light. ";
       s += surv ? ("Against all the odds, " + surv + (survivors.length === 1 ? " is" : " are") + " still breathing. ")
                 : "Somehow, the night has been survived. ";

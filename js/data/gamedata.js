@@ -36,7 +36,9 @@
       { name: "Escape in the Truck", turns: 15, objective: "Heroes find the keys and gas, start the truck, and drive off the board to escape." },
       { name: "Defend the Manor House", turns: 17,
         objTracker: { emoji: "🏚", label: "Zombies in the Manor", target: 9, win: "Zombies" },
-        objective: "Heroes hold out inside the Manor House until dawn (the Sun Track ends)." }
+        objective: "Heroes hold out inside the Manor House until dawn (the Sun Track ends)." },
+      { name: "Rescue Mission", turns: 15, rescue: true,
+        objective: "All Heroes start in the safe house. Guide helpless Townsfolk there — get 3 Townsfolk to safety to WIN. If 2 Townsfolk are killed, the dead win." }
     ],
     timber_peak: [
       { name: "Blow up the Town!", objective: "Heroes gather explosives and blow the town sky-high before the night ends." },
@@ -71,7 +73,7 @@
   // Zombie movement guide to name the Hero carrying an objective item. Names are
   // matched loosely (case-insensitive, partial) against what a Hero is carrying.
   LNOE.scenarioObjectiveItems = {
-    "Burn 'Em Out!": ["Gasoline", "Gas", "Torch", "Lighter"],
+    "Burn 'Em Out!": ["Gasoline", "Gas", "Dynamite"],
     "Escape in the Truck": ["Car Keys", "Keys", "Gasoline", "Gas"],
     "Blow up the Town!": ["Dynamite", "Explosive", "Explosives", "Gasoline", "Gas"],
     "Escape in the Plane": ["Plane Part", "Plane Parts", "Fuel", "Gasoline", "Gas"],
@@ -80,12 +82,17 @@
   };
   LNOE.objectiveItemsFor = function (name) { return (LNOE.scenarioObjectiveItems[name] || []).slice(); };
 
-  // Other escort scenarios use a simple free-text spot tracker (Save the
-  // Townsfolk has its own structured Townsfolk + safe-house system).
-  LNOE.scenarioLocations = {
-    "Rescue Mission": { noun: "the survivor", primaryLabel: "Where is the survivor?", primaryHint: "e.g. trapped in the Barn", safeLabel: "Safe spot", safeHint: "e.g. the truck" }
-  };
+  // Free-text escort spot tracker (none active right now — Rescue Mission uses
+  // its own structured Townsfolk + safe-house system below).
+  LNOE.scenarioLocations = {};
   LNOE.scenarioLocationCfg = function (name) { return LNOE.scenarioLocations[name] || null; };
+
+  // ---- Rescue Mission (base) ---------------------------------------------
+  // The helpless Townsfolk the Heroes must guide to the safe house.
+  LNOE.rescueTownsfolk = ["Principal Gomez", "Mr. Hyde", "Doc Brody", "Jeb", "Farmer Sty", "Deputy Taylor"];
+  LNOE.isRescue = function (name) { return /rescue mission/i.test(name || ""); };
+  LNOE.RESCUE_SAVE_TO_WIN = 3;   // Townsfolk in the safe house → Heroes win
+  LNOE.RESCUE_DEAD_TO_LOSE = 2;  // Townsfolk killed → Zombies win
 
   // Heroes available, grouped by set/expansion. ability = quick reminder text.
   // When an expansion is mixed in, its heroes are ADDED to the base pool.

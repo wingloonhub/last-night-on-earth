@@ -9,6 +9,14 @@
   // Expansions temporarily unavailable for selection.
   const BLOCKED_EXPANSIONS = ["growing_hunger", "survival_fittest"];
 
+  // Gender is fixed per character (no input needed) — derived from the chosen Hero.
+  const HERO_GENDER = {
+    "Johnny": "M", "Jake Cartwright": "M", "Sally": "F", "Father Joseph": "M",
+    "Becky": "F", "Sheriff Anderson": "M", "Jenny": "F", "Billy": "M",
+    "Alice": "F", "Nikki": "F", "Ed Baker": "M", "Sister Ophelia": "F",
+    "Agent Carter": "M", "Amanda": "F", "Kenny": "M", "Rachelle": "F", "Sam": "M"
+  };
+
   let rendered = false;
   const state = {
     baseSet: "base",
@@ -17,13 +25,20 @@
     advanced: false,  // base-game Advanced add-on deck
     buildings: [],   // selected building names (tags)
     spawnAreas: [],  // labelled Zombie Spawning Pits (one die rolled per pit on the Zombie turn)
-    players: [{ name: "", hero: "" }, { name: "", hero: "" }]
+    players: [{ name: "", hero: "" }, { name: "", hero: "" }],
+    rescue: { count: 4, townsfolk: [], safehouse: "" }  // Rescue Mission only
   };
 
 
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
   }); }
+  function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function pickRandom(a) { return (a && a.length) ? a[Math.floor(Math.random() * a.length)] : ""; }
+  function isRescueScenario() {
+    const sc = LNOE.scenariosFor(state.baseSet, state.expansions)[state.scenarioIndex];
+    return !!(sc && LNOE.isRescue && LNOE.isRescue(sc.name));
+  }
 
   function heroPool() { return LNOE.heroesFor(state.baseSet, state.expansions); }
 
@@ -128,6 +143,7 @@
     html += '<div class="field mt"><span>Zombie Spawning Pits — tap the buildings that have a pit</span>';
     html += '<div id="su-spawns" class="checks mt"></div></div>';
     html += '<p class="hint">Only the buildings you selected above can be tagged as pits. On the Zombie turn (after the fights), the Bot rolls one die per pit to spawn new Zombies.</p>';
+    html += '<div id="su-rescue" class="mt"></div>';   // Rescue Mission: Townsfolk + safe house
     html += "</div>";
 
     // ---- Step C: players ----
@@ -255,6 +271,7 @@
         else { state.buildings = state.buildings.filter(function (x) { return x !== v; }); }
         renderBuildings();
         renderSpawns();   // spawning-pit options come ONLY from the selected buildings
+        renderRescue();   // townsfolk / safe house pools depend on the buildings
       };
     });
   }
@@ -279,8 +296,61 @@
         if (c.checked) { if (state.spawnAreas.indexOf(v) === -1) state.spawnAreas.push(v); }
         else { state.spawnAreas = state.spawnAreas.filter(function (x) { return x !== v; }); }
         renderSpawns();
+        renderRescue();   // a pit can't hold townsfolk / the safe house
       };
     });
+  }
+
+  // Buildings that can hold a Townsfolk / safe house: a selected building that
+  // is NOT a Spawning Pit (pits/Taken-Over can't sit in those spots).
+  function nonPitBuildings() {
+    return state.buildings.filter(function (b) { return state.spawnAreas.indexOf(b) === -1; });
+  }
+  function rollRescueTownsfolk() {
+    const pool = nonPitBuildings();
+    const names = shuffle(LNOE.rescueTownsfolk).slice(0, Math.min(state.rescue.count, LNOE.rescueTownsfolk.length));
+    state.rescue.townsfolk = names.map(function (n) { return { name: n, building: pickRandom(pool.length ? pool : state.buildings) }; });
+  }
+  function rollRescueSafehouse() {
+    const tf = state.rescue.townsfolk.map(function (t) { return t.building; });
+    const avail = nonPitBuildings().filter(function (b) { return tf.indexOf(b) === -1; });
+    state.rescue.safehouse = pickRandom(avail.length ? avail : (nonPitBuildings().length ? nonPitBuildings() : state.buildings));
+  }
+  function renderRescue() {
+    const el = document.getElementById("su-rescue");
+    if (!el) return;
+    if (!isRescueScenario()) { el.innerHTML = ""; return; }
+    // Town Center is always a building AND a Spawning Pit in this scenario.
+    let added = false;
+    if (state.buildings.indexOf("Town Center") === -1) { state.buildings.push("Town Center"); added = true; }
+    if (state.spawnAreas.indexOf("Town Center") === -1) { state.spawnAreas.push("Town Center"); added = true; }
+    if (added) { renderBuildings(); renderSpawns(); }   // reflect the auto-added pit in the checkboxes
+    // Make sure townsfolk + safe house are assigned to buildings still on board.
+    if (!state.rescue.townsfolk.length ||
+        state.rescue.townsfolk.some(function (t) { return state.buildings.indexOf(t.building) === -1; })) rollRescueTownsfolk();
+    if (!state.rescue.safehouse || state.buildings.indexOf(state.rescue.safehouse) === -1) rollRescueSafehouse();
+
+    let h = '<div class="loc-box"><div class="mg-head">🆘 Rescue Mission — Townsfolk & Safe House</div>';
+    h += '<p class="hint" style="margin:0 0 8px">All Heroes start in the safe house. Get 3 Townsfolk to the safe house to WIN; if 2 are killed the dead win. A Spawning Pit or Taken Over marker can NEVER be placed in the safe house or a Townsfolk’s building. Town Center is set as a Spawning Pit.</p>';
+    h += '<label class="field" style="margin:0 0 10px">How many Townsfolk? (max 4)<select id="su-tf-count">';
+    [1, 2, 3, 4].forEach(function (n) { h += '<option value="' + n + '"' + (state.rescue.count === n ? " selected" : "") + ">" + n + "</option>"; });
+    h += "</select></label>";
+    h += '<div class="mt"><strong>👥 Townsfolk (auto-placed):</strong><ul style="margin:6px 0 0 18px">';
+    state.rescue.townsfolk.forEach(function (t) {
+      h += "<li>" + esc(t.name) + " — in <strong>" + esc(t.building || "(no building)") + "</strong></li>";
+    });
+    h += "</ul><button class='btn btn-sm mt' id='su-tf-roll'>🎲 Re-randomise Townsfolk</button></div>";
+    h += '<div class="mt"><strong>🏠 Safe house:</strong> <strong>' + esc(state.rescue.safehouse || "(none)") +
+      "</strong> <button class='btn btn-sm' id='su-sh-roll'>🎲 Re-randomise safe house</button></div>";
+    h += "</div>";
+    el.innerHTML = h;
+
+    const cnt = document.getElementById("su-tf-count");
+    if (cnt) cnt.onchange = function () { state.rescue.count = +this.value; rollRescueTownsfolk(); rollRescueSafehouse(); renderRescue(); };
+    const tr = document.getElementById("su-tf-roll");
+    if (tr) tr.onclick = function () { rollRescueTownsfolk(); rollRescueSafehouse(); renderRescue(); };
+    const shr = document.getElementById("su-sh-roll");
+    if (shr) shr.onclick = function () { rollRescueSafehouse(); renderRescue(); };
   }
 
   function wire() {
@@ -306,13 +376,14 @@
     const sc = document.getElementById("su-scenario");
     if (sc) sc.onchange = function () {
       state.scenarioIndex = +this.value;
-      const obj = LNOE.scenariosFor(state.baseSet, state.expansions)[state.scenarioIndex];
-      const o = document.getElementById("su-objective"); if (o) o.textContent = obj ? obj.objective : "";
+      // Re-render so the Rescue section (and its auto Town Center pit) appear/disappear.
+      render();
     };
     const adv = document.getElementById("su-advanced");
     if (adv) adv.onchange = function () { state.advanced = this.checked; render(); };
     renderBuildings();
     renderSpawns();
+    renderRescue();
     document.getElementById("su-add").onclick = function () {
       state.players.push({ name: "", hero: "" }); renderPlayers();
     };
@@ -350,11 +421,15 @@
       expansions: state.expansions.slice(),
       scenario: scenarios[state.scenarioIndex] || { name: "(none)", objective: "" },
       players: named.map(function (p) {
-        return { name: p.name.trim(), hero: p.hero || "(no character)", weapons: (p.weapons || []).slice(), items: (p.items || []).slice() };
+        return { name: p.name.trim(), hero: p.hero || "(no character)", gender: HERO_GENDER[p.hero] || "",
+          weapons: (p.weapons || []).slice(), items: (p.items || []).slice() };
       }),
       buildings: state.buildings.slice(),
       spawnAreas: state.spawnAreas.slice(),
       advanced: !!(state.advanced && state.baseSet === "base"),
+      rescue: isRescueScenario()
+        ? { townsfolk: state.rescue.townsfolk.map(function (t) { return { name: t.name, building: t.building }; }), safehouse: state.rescue.safehouse }
+        : null,
       startedAt: new Date().toISOString()
     };
     rendered = false; // so returning to setup re-renders fresh

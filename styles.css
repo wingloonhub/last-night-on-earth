@@ -314,8 +314,9 @@ label.field { display: block; margin-bottom: 14px; font-size: 14px; color: var(-
 .obj-done { flex-basis: 100%; color: var(--green); font-weight: 700; background: rgba(63,125,63,.14); border: 1px solid var(--green); border-radius: 8px; padding: 6px 10px; }
 
 /* ===================== MOBILE / SMALL SCREENS ===================== */
-/* Never let anything force a horizontal scrollbar; long words/IDs wrap. */
-html, body { max-width: 100%; overflow-x: hidden; }
+/* Long words/IDs wrap instead of forcing a horizontal scrollbar.
+   NOTE: do NOT put overflow-x:hidden on html/body — it makes the body a
+   scroll container and breaks position:sticky (the topbar / turn banner). */
 * { min-width: 0; }
 img, svg, video { max-width: 100%; height: auto; }
 .card, .card-draw, .narration, .modal-card { overflow-wrap: anywhere; }
